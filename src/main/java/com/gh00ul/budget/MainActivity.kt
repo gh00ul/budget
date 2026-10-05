@@ -266,11 +266,15 @@ class MainActivity : Activity() {
                 row.findViewById<TextView>(R.id.chip_top).setTextColor(secondary)
                 row.findViewById<TextView>(R.id.chip_day).setTextColor(textColor)
             }
-            row.findViewById<TextView>(R.id.forecast_title).text = if (isPayday) "Payday" else "Before payday"
+            row.findViewById<TextView>(R.id.forecast_title).text = when {
+                !isPayday -> "Before payday"
+                start in paycheckChanges -> "Payday · pay changed"
+                else -> "Payday"
+            }
             row.findViewById<TextView>(R.id.forecast_detail).text = SpannableStringBuilder().apply {
                 if (isPayday) {
                     append("+" + money.format(paycheck), ForegroundColorSpan(positive), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    append(if (start in paycheckChanges) " pay (changed) · " else " pay · ")
+                    append(" pay · ")
                 }
                 if (billsDue > 0) {
                     append("-" + money.format(billsDue), ForegroundColorSpan(negative), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
