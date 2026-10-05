@@ -29,6 +29,7 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
+import android.text.style.StyleSpan
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
@@ -67,10 +68,11 @@ import kotlin.math.abs
 
 private const val REPO = "gh00ul/budget"
 
-// Background colors for the round initial next to each bill (picked by name).
+// Background colors for the round initial next to each bill, handed out in alphabetical order so
+// neighboring bills don't share a color.
 private val AVATAR_COLORS = intArrayOf(
-    0xFF43A047.toInt(), 0xFF1E88E5.toInt(), 0xFFFB8C00.toInt(), 0xFF8E24AA.toInt(),
-    0xFFE53935.toInt(), 0xFF00897B.toInt(), 0xFF3949AB.toInt(), 0xFF6D4C41.toInt(),
+    0xFF43A047.toInt(), 0xFF1E88E5.toInt(), 0xFFFB8C00.toInt(), 0xFF8E24AA.toInt(), 0xFFE53935.toInt(),
+    0xFF00897B.toInt(), 0xFF3949AB.toInt(), 0xFFD81B60.toInt(), 0xFF6D4C41.toInt(), 0xFF00ACC1.toInt(),
 )
 
 class MainActivity : Activity() {
@@ -364,6 +366,7 @@ class MainActivity : Activity() {
 
     private fun showBills() {
         val today = LocalDate.now()
+        val colorOrder = bills.map { it.name.lowercase() }.distinct().sorted()
         billList.removeAllViews()
         for (bill in bills.sortedBy { it.nextDue(today) }) {
             val row = layoutInflater.inflate(R.layout.bill_row, billList, false)
@@ -371,7 +374,7 @@ class MainActivity : Activity() {
             val daysLeft = ChronoUnit.DAYS.between(today, next)
             row.findViewById<TextView>(R.id.bill_row_avatar).apply {
                 text = bill.name.take(1).uppercase()
-                backgroundTintList = ColorStateList.valueOf(AVATAR_COLORS[Math.floorMod(bill.name.lowercase().hashCode(), AVATAR_COLORS.size)])
+                backgroundTintList = ColorStateList.valueOf(AVATAR_COLORS[colorOrder.indexOf(bill.name.lowercase()) % AVATAR_COLORS.size])
             }
             row.findViewById<TextView>(R.id.bill_row_name).text = bill.name
             row.findViewById<TextView>(R.id.bill_row_amount).text = money.format(bill.amount)
@@ -439,16 +442,19 @@ class MainActivity : Activity() {
                 row.findViewById<TextView>(R.id.chip_top).setTextColor(secondary)
                 row.findViewById<TextView>(R.id.chip_day).setTextColor(textColor)
             }
-            row.findViewById<TextView>(R.id.forecast_title).text = if (isPayday) {
-                SpannableStringBuilder()
-                    .append("+" + money.format(paycheck), ForegroundColorSpan(positive), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    .apply {
-                        if (start in paycheckChanges) {
-                            append("  changed", ForegroundColorSpan(secondary), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                        }
+            row.findViewById<TextView>(R.id.forecast_title).text = SpannableStringBuilder().apply {
+                if (isPayday) {
+                    append("+" + money.format(paycheck), ForegroundColorSpan(positive), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    setSpan(StyleSpan(Typeface.BOLD), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    if (start in paycheckChanges) {
+                        val from = length
+                        append("  changed")
+                        setSpan(ForegroundColorSpan(secondary), from, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        setSpan(RelativeSizeSpan(0.8f), from, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     }
-            } else {
-                "Before payday"
+                } else {
+                    append("Before payday", StyleSpan(Typeface.BOLD), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
             }
             row.findViewById<TextView>(R.id.forecast_bills).text = if (due.isEmpty()) {
                 "No bills"
@@ -623,8 +629,17 @@ class MainActivity : Activity() {
         val saveButton = dialog.findViewById<Button>(R.id.sheet_save)
         val deleteButton = dialog.findViewById<View>(R.id.sheet_delete)
 
+        // Run the sheet down behind the navigation buttons; if the phone keeps the window above them
+        // instead, color that strip to match the sheet.
+        @Suppress("DEPRECATION")
+        window.navigationBarColor = getColor(R.color.card)
         if (Build.VERSION.SDK_INT >= 30) {
             window.setDecorFitsSystemWindows(false)
+            window.attributes = window.attributes.apply { fitInsetsTypes = 0 }
+            window.isNavigationBarContrastEnforced = false
+            val night = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+            val lightNav = WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+            window.insetsController?.setSystemBarsAppearance(if (night) 0 else lightNav, lightNav)
             val basePadding = sheet.paddingBottom
             root.setOnApplyWindowInsetsListener { _, insets ->
                 val bars = insets.getInsets(WindowInsets.Type.systemBars())
