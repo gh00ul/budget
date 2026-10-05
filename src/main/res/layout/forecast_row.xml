@@ -51,20 +51,20 @@
             android:textStyle="bold" />
 
         <TextView
-            android:id="@+id/forecast_detail"
+            android:id="@+id/forecast_pay"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textColor="@color/text_secondary"
             android:textSize="13sp" />
 
         <TextView
-            android:id="@+id/forecast_bill_names"
+            android:id="@+id/forecast_bills"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:ellipsize="end"
             android:maxLines="2"
             android:textColor="@color/text_secondary"
-            android:textSize="12sp" />
+            android:textSize="13sp" />
     </LinearLayout>
 
     <LinearLayout

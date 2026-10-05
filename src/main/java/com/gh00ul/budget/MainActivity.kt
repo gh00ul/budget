@@ -266,26 +266,22 @@ class MainActivity : Activity() {
                 row.findViewById<TextView>(R.id.chip_top).setTextColor(secondary)
                 row.findViewById<TextView>(R.id.chip_day).setTextColor(textColor)
             }
-            row.findViewById<TextView>(R.id.forecast_title).text = when {
-                !isPayday -> "Before payday"
-                start in paycheckChanges -> "Payday · pay changed"
-                else -> "Payday"
-            }
-            row.findViewById<TextView>(R.id.forecast_detail).text = SpannableStringBuilder().apply {
+            row.findViewById<TextView>(R.id.forecast_title).text = if (isPayday) "Payday" else "Before payday"
+            row.findViewById<TextView>(R.id.forecast_pay).apply {
                 if (isPayday) {
-                    append("+" + money.format(paycheck), ForegroundColorSpan(positive), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    append(" pay · ")
-                }
-                if (billsDue > 0) {
-                    append("-" + money.format(billsDue), ForegroundColorSpan(negative), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    append(" bills")
+                    text = SpannableStringBuilder()
+                        .append("+" + money.format(paycheck), ForegroundColorSpan(positive), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        .append(if (start in paycheckChanges) " pay (changed)" else " pay")
                 } else {
-                    append("no bills")
+                    visibility = View.GONE
                 }
             }
-            row.findViewById<TextView>(R.id.forecast_bill_names).apply {
-                text = due.joinToString { it.name }
-                visibility = if (due.isEmpty()) View.GONE else View.VISIBLE
+            row.findViewById<TextView>(R.id.forecast_bills).text = if (due.isEmpty()) {
+                "No bills"
+            } else {
+                SpannableStringBuilder()
+                    .append("-" + money.format(billsDue), ForegroundColorSpan(negative), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    .append(" bills · " + due.joinToString { it.name })
             }
             showMoney(row.findViewById(R.id.forecast_left), running)
             if (isPayday) row.setOnClickListener { editPaycheck(start) }
