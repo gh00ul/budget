@@ -33,4 +33,5 @@
     <color name="avatar_fg_5">#37474F</color>
     <color name="avatar_bg_6">#D3EEEA</color>
     <color name="avatar_fg_6">#00574B</color>
+    <color name="warn_bg">#FFF3E0</color>
 </resources>

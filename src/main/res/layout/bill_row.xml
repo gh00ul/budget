@@ -70,15 +70,35 @@
         android:paddingHorizontal="16dp"
         android:paddingVertical="10dp">
 
-        <TextView
-            android:id="@+id/bill_row_avatar"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@drawable/circle"
-            android:fontFamily="sans-serif-medium"
+        <!-- Next due date: month over day -->
+        <LinearLayout
+            android:id="@+id/bill_row_chip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/chip_today"
             android:gravity="center"
-            android:importantForAccessibility="no"
-            android:textSize="16sp" />
+            android:importantForAccessibility="noHideDescendants"
+            android:minWidth="44dp"
+            android:minHeight="44dp"
+            android:orientation="vertical"
+            android:padding="4dp">
+
+            <TextView
+                android:id="@+id/bill_row_month"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-medium"
+                android:textAllCaps="true"
+                android:textSize="10sp" />
+
+            <TextView
+                android:id="@+id/bill_row_day"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="-2dp"
+                android:fontFamily="sans-serif-medium"
+                android:textSize="17sp" />
+        </LinearLayout>
 
         <LinearLayout
             android:layout_width="0dp"
@@ -115,4 +135,13 @@
             android:textColor="@color/text"
             android:textSize="16sp" />
     </LinearLayout>
+
+    <!-- Line under the row (hidden on the last row of a section) -->
+    <View
+        android:id="@+id/bill_row_divider"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_gravity="bottom"
+        android:layout_marginStart="72dp"
+        android:background="@color/divider" />
 </FrameLayout>

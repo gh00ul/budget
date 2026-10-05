@@ -146,6 +146,16 @@
                     </LinearLayout>
                 </LinearLayout>
 
+                <!-- "≈ $276.92 from each weekly paycheck" -->
+                <TextView
+                    android:id="@+id/sheet_share"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:layout_marginTop="8dp"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp" />
+
                 <!-- Editing only: mark the next one paid -->
                 <TextView
                     android:id="@+id/sheet_paid"
@@ -162,6 +172,19 @@
                     android:paddingHorizontal="4dp"
                     android:textColor="@color/chip_text"
                     android:textSize="15sp"
+                    android:visibility="gone" />
+
+                <!-- Editing only: undo the latest "paid" -->
+                <TextView
+                    android:id="@+id/sheet_unmark"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="?android:attr/selectableItemBackground"
+                    android:gravity="center_vertical"
+                    android:minHeight="48dp"
+                    android:paddingHorizontal="4dp"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="14sp"
                     android:visibility="gone" />
 
                 <LinearLayout
