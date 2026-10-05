@@ -793,7 +793,7 @@ class MainActivity : Activity() {
         }
         val endIfSpending = cents(endBillsOnly - maxOf(0.0, week.safe) - spendRest)
 
-        paydaysSubtitle.text = "Next ${paydays.size} paydays · tap one to change its pay"
+        paydaysSubtitle.text = if (isSetUp()) "Next ${paydays.size} paydays · tap one to change its pay" else "What's left after each payday's bills"
         endLabel.text = "End of $monthName"
         showMoney(endBalance, endBillsOnly)
         chartCard.visibility = if (chartValues.size >= 2) View.VISIBLE else View.GONE
@@ -963,19 +963,19 @@ class MainActivity : Activity() {
         }
         if (week.spent != null && from != null && week.startBalance != null) {
             val since = if (from == week.payday) "payday" else from.format(dayFormat)
-            row("Spent since $since", "−" + money.format(week.spent),
+            row("Spent since $since", if (week.spent > 0) "−" + money.format(week.spent) else money.format(0.0),
                 note = "${shortMoney(week.startBalance)} → ${shortMoney(balance)}, not counting bills")
         } else {
             row("Spent since payday", "not counted yet")
         }
         line()
-        row("This week's spending money" + if (usedStep1) "  ✓" else "", money.format(week.spendingMoney), total = true)
+        row(if (usedStep1) "✓ Spending money" else "Spending money", money.format(week.spendingMoney), total = true)
 
         heading("Step 2 · Can the bank cover it?")
         row(if (week.bankIsEstimate) "Bank balance (estimated)" else "Bank balance today", money.format(week.bank))
         row("Bill buffer", "−" + money.format(week.setAside))
         line()
-        row("Spare money" + if (!usedStep1) "  ✓" else "", money.format(week.free), total = true)
+        row(if (!usedStep1) "✓ Spare money" else "Spare money", money.format(week.free), total = true)
 
         paragraph(
             (if (shown > 0) "You can spend ${money.format(shown)} until payday (${week.nextPayday.format(dayFormat)}). "
@@ -1411,7 +1411,7 @@ class MainActivity : Activity() {
         save()
         refresh()
         haptic(billList)
-        showSnack("${bill.name} marked paid (due ${due.format(shortDate)})") {
+        showSnack("${bill.name} marked paid") {
             val i = bills.indexOf(updated)
             if (i >= 0) {
                 bills[i] = bill
