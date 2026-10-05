@@ -7,6 +7,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
+import android.content.res.ColorStateList
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -15,16 +17,18 @@ import android.text.Editable
 import android.text.InputType
 import android.text.SpannableStringBuilder
 import android.text.Spanned
-import android.text.style.ForegroundColorSpan
 import android.text.TextWatcher
+import android.text.style.ForegroundColorSpan
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
@@ -49,6 +53,17 @@ class MainActivity : Activity() {
     // day = day of the month the bill is due (1-31).
     private class Bill(val name: String, val amount: Double, val day: Int)
 
+    private class Tab(val label: String, val icon: Int, val page: Int)
+
+    private val tabs = listOf(
+        Tab("Summary", R.drawable.ic_tab_summary, R.id.page_summary),
+        Tab("Paydays", R.drawable.ic_tab_paydays, R.id.page_paydays),
+        Tab("Bills", R.drawable.ic_tab_bills, R.id.page_bills),
+        Tab("Income", R.drawable.ic_tab_income, R.id.page_income),
+    )
+    private val navItems = mutableListOf<View>()
+    private var currentTab = 0
+
     private val prefs by lazy { getSharedPreferences("budget", MODE_PRIVATE) }
     private val money = NumberFormat.getCurrencyInstance()
     private val dayFormat = DateTimeFormatter.ofPattern("EEE, MMM d")
@@ -58,7 +73,6 @@ class MainActivity : Activity() {
     private var payday = DayOfWeek.FRIDAY
     // One-off paycheck amounts (overtime, short week) that replace the weekly income on that date.
     private val paycheckChanges = mutableMapOf<LocalDate, Double>()
-    private var billsOpen = false
     private var updateUrl: String? = null
 
     // Theme colors (they change in dark mode).
@@ -67,17 +81,21 @@ class MainActivity : Activity() {
     private val warning by lazy { getColor(R.color.warning) }
     private val secondary by lazy { getColor(R.color.text_secondary) }
     private val textColor by lazy { getColor(R.color.text) }
+    private val accent by lazy { getColor(R.color.chip_text) }
 
     private lateinit var billList: LinearLayout
-    private lateinit var billsBody: View
-    private lateinit var billsToggle: TextView
-    private lateinit var billsNext: TextView
+    private lateinit var billsEmpty: View
     private lateinit var billsTotalView: TextView
     private lateinit var forecastList: LinearLayout
+    private lateinit var endLabel: TextView
+    private lateinit var endBalance: TextView
     private lateinit var hero: View
     private lateinit var heroLabel: TextView
     private lateinit var heroAmount: TextView
     private lateinit var heroNext: TextView
+    private lateinit var glancePayday: TextView
+    private lateinit var glanceBill: TextView
+    private lateinit var glanceDue: TextView
     private lateinit var updateStatus: TextView
     private lateinit var updateButton: Button
 
@@ -85,17 +103,21 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         fitToSystemBars()
+        setUpTabs()
 
         billList = findViewById(R.id.bill_list)
-        billsBody = findViewById(R.id.bills_body)
-        billsToggle = findViewById(R.id.bills_toggle)
-        billsNext = findViewById(R.id.bills_next)
+        billsEmpty = findViewById(R.id.bills_empty)
         billsTotalView = findViewById(R.id.bills_total)
         forecastList = findViewById(R.id.forecast_list)
+        endLabel = findViewById(R.id.end_label)
+        endBalance = findViewById(R.id.end_balance)
         hero = findViewById(R.id.hero)
         heroLabel = findViewById(R.id.hero_label)
         heroAmount = findViewById(R.id.hero_amount)
         heroNext = findViewById(R.id.hero_next)
+        glancePayday = findViewById(R.id.glance_payday)
+        glanceBill = findViewById(R.id.glance_bill)
+        glanceDue = findViewById(R.id.glance_due)
         updateStatus = findViewById(R.id.update_status)
         updateButton = findViewById(R.id.update_button)
 
@@ -141,11 +163,10 @@ class MainActivity : Activity() {
                 }
             }
         }
-        findViewById<View>(R.id.bills_header).setOnClickListener {
-            billsOpen = !billsOpen
-            prefs.edit().putBoolean("bills_open", billsOpen).apply()
-            showBills()
-        }
+
+        findViewById<View>(R.id.glance_payday_row).setOnClickListener { showTab(1) }
+        findViewById<View>(R.id.glance_bill_row).setOnClickListener { showTab(2) }
+        findViewById<View>(R.id.glance_due_row).setOnClickListener { showTab(2) }
         updateButton.setOnClickListener { installUpdate() }
 
         checkForUpdate()
@@ -157,17 +178,60 @@ class MainActivity : Activity() {
         showBills()
     }
 
-    // Android 15+ draws the app behind the status/navigation bars, so pad the content clear of them.
+    // Back from another tab goes to Summary before leaving the app.
+    @Deprecated("Deprecated in Java")
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        if (currentTab != 0) showTab(0) else super.onBackPressed()
+    }
+
+    private fun setUpTabs() {
+        val nav = findViewById<LinearLayout>(R.id.nav)
+        tabs.forEachIndexed { i, tab ->
+            val item = layoutInflater.inflate(R.layout.nav_item, nav, false)
+            item.findViewById<ImageView>(R.id.nav_icon).setImageResource(tab.icon)
+            item.findViewById<TextView>(R.id.nav_label).text = tab.label
+            item.contentDescription = tab.label
+            item.setOnClickListener { showTab(i) }
+            nav.addView(item)
+            navItems.add(item)
+        }
+        showTab(0)
+    }
+
+    private fun showTab(index: Int) {
+        currentTab = index
+        tabs.forEachIndexed { i, tab ->
+            val selected = i == index
+            findViewById<View>(tab.page).visibility = if (selected) View.VISIBLE else View.GONE
+            val item = navItems[i]
+            item.isSelected = selected
+            item.findViewById<View>(R.id.nav_pill).setBackgroundResource(if (selected) R.drawable.nav_pill else 0)
+            item.findViewById<ImageView>(R.id.nav_icon).imageTintList =
+                ColorStateList.valueOf(if (selected) accent else secondary)
+            item.findViewById<TextView>(R.id.nav_label).apply {
+                setTextColor(if (selected) textColor else secondary)
+                typeface = if (selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            }
+        }
+        currentFocus?.clearFocus()
+        getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(window.decorView.windowToken, 0)
+    }
+
+    // Android 15+ draws the app behind the status/navigation bars, so pad the pages and tab bar clear of
+    // them. The tab bar hides while the keyboard is open so the page has room.
     private fun fitToSystemBars() {
         if (Build.VERSION.SDK_INT < 30) return
         window.setDecorFitsSystemWindows(false)
-        val root = findViewById<View>(R.id.root)
-        val pad = root.paddingTop
-        root.setOnApplyWindowInsetsListener { view, insets ->
-            val bars = insets.getInsets(
-                WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout() or WindowInsets.Type.ime()
-            )
-            view.setPadding(pad + bars.left, pad + bars.top, pad + bars.right, pad + bars.bottom)
+        val pages = findViewById<View>(R.id.pages)
+        val navBar = findViewById<View>(R.id.nav_bar)
+        findViewById<View>(R.id.root).setOnApplyWindowInsetsListener { _, insets ->
+            val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+            val keyboardOpen = insets.isVisible(WindowInsets.Type.ime())
+            val keyboard = insets.getInsets(WindowInsets.Type.ime())
+            pages.setPadding(bars.left, bars.top, bars.right, if (keyboardOpen) keyboard.bottom else 0)
+            navBar.setPadding(bars.left, 0, bars.right, bars.bottom)
+            navBar.visibility = if (keyboardOpen) View.GONE else View.VISIBLE
             insets
         }
     }
@@ -186,17 +250,14 @@ class MainActivity : Activity() {
         })
     }
 
-    // The bill list folds away to a one-line summary; it's always open while there are no bills yet.
     private fun showBills() {
         val today = LocalDate.now()
-        fun daysUntilDue(bill: Bill) = ChronoUnit.DAYS.between(today, nextDueDate(bill.day, today))
-
         billList.removeAllViews()
         for (bill in bills) {
             val row = layoutInflater.inflate(R.layout.bill_row, billList, false)
             row.findViewById<TextView>(R.id.bill_row_name).text = bill.name
             row.findViewById<TextView>(R.id.bill_row_amount).text = money.format(bill.amount)
-            val daysLeft = daysUntilDue(bill)
+            val daysLeft = ChronoUnit.DAYS.between(today, nextDueDate(bill.day, today))
             row.findViewById<TextView>(R.id.bill_row_due).apply {
                 text = "${ordinal(bill.day)} · ${dueIn(daysLeft)}"
                 setTextColor(if (daysLeft <= 3) warning else secondary)
@@ -208,27 +269,9 @@ class MainActivity : Activity() {
             }
             billList.addView(row)
         }
-
-        val open = billsOpen || bills.isEmpty()
-        billsBody.visibility = if (open) View.VISIBLE else View.GONE
-        billsToggle.visibility = if (bills.isEmpty()) View.GONE else View.VISIBLE
-        billsToggle.text = if (open) "Hide ▴" else "Show ▾"
+        billsEmpty.visibility = if (bills.isEmpty()) View.VISIBLE else View.GONE
         billsTotalView.text = "${money.format(bills.sumOf { it.amount })} / month"
-
-        val next = bills.minByOrNull { daysUntilDue(it) }
-        billsNext.visibility = if (next == null) View.GONE else View.VISIBLE
-        if (next != null) {
-            val daysLeft = daysUntilDue(next)
-            billsNext.text = "Next: ${next.name} ${money.format(next.amount)}, due ${dueIn(daysLeft)}"
-            billsNext.setTextColor(if (daysLeft <= 3) warning else secondary)
-        }
         recalculate()
-    }
-
-    private fun dueIn(days: Long) = when (days) {
-        0L -> "today"
-        1L -> "tomorrow"
-        else -> "in $days days"
     }
 
     // Walks from today to the end of the month. Each payday adds a paycheck, and each bill comes out of
@@ -237,23 +280,23 @@ class MainActivity : Activity() {
     private fun recalculate() {
         val today = LocalDate.now()
         val monthEnd = today.withDayOfMonth(today.lengthOfMonth())
-        val paydays = generateSequence(today.with(TemporalAdjusters.next(payday))) { it.plusWeeks(1) }
+        val nextPayday = today.with(TemporalAdjusters.next(payday))
+        val paydays = generateSequence(nextPayday) { it.plusWeeks(1) }
             .takeWhile { !it.isAfter(monthEnd) }
             .toList()
         val periodStarts = listOf(today) + paydays
+        fun dueThisMonth(bill: Bill) = today.withDayOfMonth(minOf(bill.day, today.lengthOfMonth()))
+        fun paycheckOn(date: LocalDate) = paycheckChanges[date] ?: weeklyIncome
 
         forecastList.removeAllViews()
         var running = balance
         var leftAfterNextPayday = 0.0
         periodStarts.forEachIndexed { i, start ->
             val end = periodStarts.getOrNull(i + 1) ?: monthEnd.plusDays(1)
-            val due = bills.filter {
-                val dueDate = today.withDayOfMonth(minOf(it.day, today.lengthOfMonth()))
-                !dueDate.isBefore(start) && dueDate.isBefore(end)
-            }
+            val due = bills.filter { val d = dueThisMonth(it); !d.isBefore(start) && d.isBefore(end) }
             val billsDue = due.sumOf { it.amount }
             val isPayday = i > 0
-            val paycheck = if (isPayday) paycheckChanges[start] ?: weeklyIncome else 0.0
+            val paycheck = if (isPayday) paycheckOn(start) else 0.0
             running += paycheck - billsDue
             if (i == 1) leftAfterNextPayday = running
 
@@ -288,14 +331,32 @@ class MainActivity : Activity() {
             forecastList.addView(row)
         }
 
+        val monthName = monthEnd.month.getDisplayName(TextStyle.FULL, Locale.getDefault())
+        endLabel.text = "End of $monthName"
+        showMoney(endBalance, running)
+
+        // Summary page
         hero.setBackgroundResource(if (running < 0) R.drawable.hero_red else R.drawable.hero_green)
-        heroLabel.text = "End of ${monthEnd.month.getDisplayName(TextStyle.FULL, Locale.getDefault())}"
+        heroLabel.text = "End of $monthName"
         heroAmount.text = money.format(running)
         heroNext.text = if (paydays.isEmpty()) {
             "No more paydays this month"
         } else {
             "${money.format(leftAfterNextPayday)} left after bills on ${paydays.first().format(dayFormat)}"
         }
+        glancePayday.text = "${nextPayday.format(dayFormat)} · +${money.format(paycheckOn(nextPayday))}"
+
+        val nextBill = bills.minByOrNull { ChronoUnit.DAYS.between(today, nextDueDate(it.day, today)) }
+        if (nextBill == null) {
+            glanceBill.text = "None"
+            glanceBill.setTextColor(secondary)
+        } else {
+            val daysLeft = ChronoUnit.DAYS.between(today, nextDueDate(nextBill.day, today))
+            glanceBill.text = "${nextBill.name} · ${dueIn(daysLeft)}"
+            glanceBill.setTextColor(if (daysLeft <= 3) warning else textColor)
+        }
+        val stillDue = bills.filter { !dueThisMonth(it).isBefore(today) }.sumOf { it.amount }
+        glanceDue.text = if (stillDue == 0.0) "All paid" else money.format(stillDue)
     }
 
     private fun editPaycheck(date: LocalDate) {
@@ -339,6 +400,12 @@ class MainActivity : Activity() {
         return nextMonth.withDayOfMonth(minOf(day, nextMonth.lengthOfMonth()))
     }
 
+    private fun dueIn(days: Long) = when (days) {
+        0L -> "today"
+        1L -> "tomorrow"
+        else -> "in $days days"
+    }
+
     private fun showMoney(view: TextView, amount: Double) {
         view.text = money.format(amount)
         view.setTextColor(if (amount < 0) negative else positive)
@@ -360,7 +427,6 @@ class MainActivity : Activity() {
         balance = prefs.getString("balance", null)?.toDoubleOrNull() ?: 0.0
         weeklyIncome = prefs.getString("weekly_income", null)?.toDoubleOrNull() ?: 0.0
         payday = DayOfWeek.of(prefs.getInt("payday", DayOfWeek.FRIDAY.value))
-        billsOpen = prefs.getBoolean("bills_open", false)
         val saved = JSONArray(prefs.getString("bills", "[]"))
         for (i in 0 until saved.length()) {
             val bill = saved.getJSONObject(i)
