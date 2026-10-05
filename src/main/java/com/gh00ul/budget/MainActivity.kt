@@ -1,30 +1,44 @@
 package com.gh00ul.budget
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.DatePickerDialog
+import android.app.Dialog
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.content.res.ColorStateList
+import android.content.res.Configuration
+import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
-import android.text.Editable
 import android.text.InputType
+import android.text.SpannableString
 import android.text.SpannableStringBuilder
 import android.text.Spanned
-import android.text.TextWatcher
 import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
+import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
+import android.view.ViewGroup
 import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.view.WindowManager
+import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.InputMethodManager
-import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
@@ -38,6 +52,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.DecimalFormat
 import java.text.NumberFormat
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -48,8 +63,15 @@ import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 import java.util.Locale
 import kotlin.concurrent.thread
+import kotlin.math.abs
 
 private const val REPO = "gh00ul/budget"
+
+// Background colors for the round initial next to each bill (picked by name).
+private val AVATAR_COLORS = intArrayOf(
+    0xFF43A047.toInt(), 0xFF1E88E5.toInt(), 0xFFFB8C00.toInt(), 0xFF8E24AA.toInt(),
+    0xFFE53935.toInt(), 0xFF00897B.toInt(), 0xFF3949AB.toInt(), 0xFF6D4C41.toInt(),
+)
 
 class MainActivity : Activity() {
     // How often a bill repeats: every `days` days, or every `months` months on the same day of the month.
@@ -100,23 +122,33 @@ class MainActivity : Activity() {
         Tab("Summary", R.drawable.ic_tab_summary, R.id.page_summary),
         Tab("Paydays", R.drawable.ic_tab_paydays, R.id.page_paydays),
         Tab("Bills", R.drawable.ic_tab_bills, R.id.page_bills),
-        Tab("Income", R.drawable.ic_tab_income, R.id.page_income),
+        Tab("Settings", R.drawable.ic_tab_settings, R.id.page_settings),
     )
     private val navItems = mutableListOf<View>()
     private var currentTab = 0
 
     private val prefs by lazy { getSharedPreferences("budget", MODE_PRIVATE) }
     private val money = NumberFormat.getCurrencyInstance()
+    private val decimalSeparator = (money as? DecimalFormat)?.decimalFormatSymbols?.monetaryDecimalSeparator ?: '.'
     private val dayFormat = DateTimeFormatter.ofPattern("EEE, MMM d")
     private val shortDate = DateTimeFormatter.ofPattern("MMM d")
     private val bills = mutableListOf<Bill>()
     private var balance = 0.0
+    private var balanceUpdated: LocalDate? = null
     private var weeklyIncome = 0.0
     private var payday = DayOfWeek.FRIDAY
     // One-off paycheck amounts (overtime, short week) that replace the weekly income on that date.
     private val paycheckChanges = mutableMapOf<LocalDate, Double>()
-    private var newBillDate: LocalDate? = null
     private var updateUrl: String? = null
+
+    private val handler = Handler(Looper.getMainLooper())
+    private var undoAction: (() -> Unit)? = null
+    private val hideUndo = Runnable {
+        undoAction = null
+        undoBar.animate().alpha(0f).setDuration(150).withEndAction { undoBar.visibility = View.GONE }.start()
+    }
+    private var heroShown: Double? = null
+    private var heroAnimator: ValueAnimator? = null
 
     // Theme colors (they change in dark mode).
     private val positive by lazy { getColor(R.color.positive) }
@@ -128,96 +160,96 @@ class MainActivity : Activity() {
 
     private lateinit var billList: LinearLayout
     private lateinit var billsEmpty: View
-    private lateinit var billsTotalView: TextView
-    private lateinit var billDateField: TextView
+    private lateinit var billsHint: View
+    private lateinit var billsSubtitle: TextView
     private lateinit var forecastList: LinearLayout
+    private lateinit var chartCard: View
+    private lateinit var chart: BalanceChart
+    private lateinit var paydaysSubtitle: TextView
     private lateinit var endLabel: TextView
     private lateinit var endBalance: TextView
     private lateinit var hero: View
-    private lateinit var heroLabel: TextView
     private lateinit var heroAmount: TextView
+    private lateinit var heroNote: TextView
+    private lateinit var heroEndLabel: TextView
+    private lateinit var heroEnd: TextView
+    private lateinit var heroNextCol: View
+    private lateinit var heroNextLabel: TextView
     private lateinit var heroNext: TextView
-    private lateinit var safeAmount: TextView
-    private lateinit var safeNote: TextView
+    private lateinit var balanceValue: TextView
+    private lateinit var balanceUpdatedView: TextView
     private lateinit var glancePayday: TextView
     private lateinit var glanceBill: TextView
     private lateinit var glanceDue: TextView
+    private lateinit var incomeValue: TextView
+    private lateinit var paydayValue: TextView
+    private lateinit var updateBanner: View
+    private lateinit var updateText: TextView
     private lateinit var updateStatus: TextView
     private lateinit var updateButton: Button
+    private lateinit var fab: View
+    private lateinit var undoBar: View
+    private lateinit var undoText: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        fitToSystemBars()
-        setUpTabs()
 
         billList = findViewById(R.id.bill_list)
         billsEmpty = findViewById(R.id.bills_empty)
-        billsTotalView = findViewById(R.id.bills_total)
-        billDateField = findViewById(R.id.bill_date)
+        billsHint = findViewById(R.id.bills_hint)
+        billsSubtitle = findViewById(R.id.bills_subtitle)
         forecastList = findViewById(R.id.forecast_list)
+        chartCard = findViewById(R.id.chart_card)
+        chart = findViewById(R.id.chart)
+        paydaysSubtitle = findViewById(R.id.paydays_subtitle)
         endLabel = findViewById(R.id.end_label)
         endBalance = findViewById(R.id.end_balance)
         hero = findViewById(R.id.hero)
-        heroLabel = findViewById(R.id.hero_label)
         heroAmount = findViewById(R.id.hero_amount)
+        heroNote = findViewById(R.id.hero_note)
+        heroEndLabel = findViewById(R.id.hero_end_label)
+        heroEnd = findViewById(R.id.hero_end)
+        heroNextCol = findViewById(R.id.hero_next_col)
+        heroNextLabel = findViewById(R.id.hero_next_label)
         heroNext = findViewById(R.id.hero_next)
-        safeAmount = findViewById(R.id.safe_amount)
-        safeNote = findViewById(R.id.safe_note)
+        balanceValue = findViewById(R.id.balance_value)
+        balanceUpdatedView = findViewById(R.id.balance_updated)
         glancePayday = findViewById(R.id.glance_payday)
         glanceBill = findViewById(R.id.glance_bill)
         glanceDue = findViewById(R.id.glance_due)
+        incomeValue = findViewById(R.id.income_value)
+        paydayValue = findViewById(R.id.payday_value)
+        updateBanner = findViewById(R.id.update_banner)
+        updateText = findViewById(R.id.update_text)
         updateStatus = findViewById(R.id.update_status)
         updateButton = findViewById(R.id.update_button)
+        fab = findViewById(R.id.fab)
+        undoBar = findViewById(R.id.undo_bar)
+        undoText = findViewById(R.id.undo_text)
 
+        fitToSystemBars()
+        setUpTabs()
         load()
-        bindMoneyField(R.id.balance, balance) { balance = it }
-        bindMoneyField(R.id.weekly_income, weeklyIncome) { weeklyIncome = it }
 
-        val days = DayOfWeek.values()
-        val paydaySpinner = findViewById<Spinner>(R.id.payday)
-        paydaySpinner.adapter = spinnerAdapter(days.map { it.getDisplayName(TextStyle.FULL, Locale.getDefault()) })
-        paydaySpinner.setSelection(payday.ordinal)
-        paydaySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                payday = days[position]
-                save()
-                recalculate()
-            }
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
-        }
+        findViewById<TextView>(R.id.today_label).text =
+            LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, MMMM d"))
+        findViewById<View>(R.id.bills_card).clipToOutline = true // keeps swiped rows inside the rounded card
 
-        val nameBox = findViewById<EditText>(R.id.bill_name)
-        val amountBox = findViewById<EditText>(R.id.bill_amount)
-        val freqSpinner = findViewById<Spinner>(R.id.bill_freq)
-        freqSpinner.adapter = spinnerAdapter(Freq.values().map { it.label })
-        billDateField.setOnClickListener { pickBillDate() }
-        findViewById<Button>(R.id.add_button).setOnClickListener {
-            val name = nameBox.text.toString().trim()
-            val amount = parseMoney(amountBox.text.toString())
-            val date = newBillDate
-            when {
-                name.isEmpty() -> nameBox.requestFocus()
-                amount == null -> amountBox.requestFocus()
-                date == null -> pickBillDate()
-                else -> {
-                    bills.add(Bill(name, amount, Freq.values()[freqSpinner.selectedItemPosition], date))
-                    save()
-                    showBills()
-                    nameBox.text.clear()
-                    amountBox.text.clear()
-                    freqSpinner.setSelection(0)
-                    newBillDate = null
-                    billDateField.text = ""
-                    nameBox.requestFocus()
-                }
-            }
-        }
-
+        findViewById<View>(R.id.balance_row).setOnClickListener { editBalance() }
         findViewById<View>(R.id.glance_payday_row).setOnClickListener { showTab(1) }
         findViewById<View>(R.id.glance_bill_row).setOnClickListener { showTab(2) }
         findViewById<View>(R.id.glance_due_row).setOnClickListener { showTab(2) }
+        findViewById<View>(R.id.income_row).setOnClickListener { editIncome() }
+        findViewById<View>(R.id.payday_row).setOnClickListener { pickPayday() }
+        findViewById<View>(R.id.check_row).setOnClickListener { checkForUpdate() }
+        fab.setOnClickListener { openBillSheet(null) }
         updateButton.setOnClickListener { installUpdate() }
+        findViewById<View>(R.id.undo_button).setOnClickListener {
+            undoAction?.invoke()
+            handler.removeCallbacks(hideUndo)
+            hideUndo.run()
+        }
 
         checkForUpdate()
     }
@@ -225,7 +257,7 @@ class MainActivity : Activity() {
     // Redraw on every return to the app so "due in X days" and the paydays stay current.
     override fun onResume() {
         super.onResume()
-        showBills()
+        refresh()
     }
 
     // Back from another tab goes to Summary before leaving the app.
@@ -235,18 +267,7 @@ class MainActivity : Activity() {
         if (currentTab != 0) showTab(0) else super.onBackPressed()
     }
 
-    private fun spinnerAdapter(items: List<String>) =
-        ArrayAdapter(this, R.layout.spinner_item, items).apply {
-            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        }
-
-    private fun pickBillDate() {
-        val start = newBillDate ?: LocalDate.now()
-        DatePickerDialog(this, { _, year, month, day ->
-            newBillDate = LocalDate.of(year, month + 1, day)
-            billDateField.text = "Due ${newBillDate!!.format(dayFormat)}"
-        }, start.year, start.monthValue - 1, start.dayOfMonth).show()
-    }
+    // ---------- Tabs and window ----------
 
     private fun setUpTabs() {
         val nav = findViewById<LinearLayout>(R.id.nav)
@@ -259,14 +280,21 @@ class MainActivity : Activity() {
             nav.addView(item)
             navItems.add(item)
         }
-        showTab(0)
+        showTab(0, animate = false)
     }
 
-    private fun showTab(index: Int) {
+    private fun showTab(index: Int, animate: Boolean = true) {
+        val changed = index != currentTab
         currentTab = index
         tabs.forEachIndexed { i, tab ->
             val selected = i == index
-            findViewById<View>(tab.page).visibility = if (selected) View.VISIBLE else View.GONE
+            val page = findViewById<View>(tab.page)
+            page.visibility = if (selected) View.VISIBLE else View.GONE
+            if (selected && animate && changed) {
+                page.alpha = 0f
+                page.translationY = 12 * resources.displayMetrics.density
+                page.animate().alpha(1f).translationY(0f).setDuration(180).setInterpolator(DecelerateInterpolator()).start()
+            }
             val item = navItems[i]
             item.isSelected = selected
             item.findViewById<View>(R.id.nav_pill).setBackgroundResource(if (selected) R.drawable.nav_pill else 0)
@@ -277,15 +305,27 @@ class MainActivity : Activity() {
                 typeface = if (selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
             }
         }
+        fab.visibility = if (index == 2) View.VISIBLE else View.GONE
+        hideKeyboard()
+    }
+
+    private fun hideKeyboard() {
         currentFocus?.clearFocus()
         getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(window.decorView.windowToken, 0)
     }
 
     // Android 15+ draws the app behind the status/navigation bars, so pad the pages and tab bar clear of
-    // them. The tab bar hides while the keyboard is open so the page has room.
+    // them. The tab bar's color runs down behind the phone's navigation buttons.
+    @Suppress("DEPRECATION")
     private fun fitToSystemBars() {
         if (Build.VERSION.SDK_INT < 30) return
         window.setDecorFitsSystemWindows(false)
+        window.navigationBarColor = Color.TRANSPARENT
+        window.isNavigationBarContrastEnforced = false
+        val night = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val lightBars = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+        window.insetsController?.setSystemBarsAppearance(if (night) 0 else lightBars, lightBars)
+
         val pages = findViewById<View>(R.id.pages)
         val navBar = findViewById<View>(R.id.nav_bar)
         findViewById<View>(R.id.root).setOnApplyWindowInsetsListener { _, insets ->
@@ -299,18 +339,27 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun bindMoneyField(id: Int, initial: Double, onChange: (Double) -> Unit) {
-        val box = findViewById<EditText>(id)
-        if (initial != 0.0) box.setText(plain(initial))
-        box.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: Editable?) {
-                onChange(parseMoney(s.toString()) ?: 0.0)
-                save()
-                recalculate()
-            }
-        })
+    // ---------- Drawing the screens ----------
+
+    private fun refresh() {
+        showBills()
+        recalculate()
+        showSettings()
+    }
+
+    private fun showSettings() {
+        incomeValue.text = money.format(weeklyIncome)
+        paydayValue.text = payday.getDisplayName(TextStyle.FULL, Locale.getDefault())
+        balanceValue.text = money.format(balance)
+        val updated = balanceUpdated
+        val days = updated?.let { ChronoUnit.DAYS.between(it, LocalDate.now()) }
+        balanceUpdatedView.text = when (days) {
+            null -> "Tap to update"
+            0L -> "Updated today"
+            1L -> "Updated yesterday"
+            else -> "Updated $days days ago"
+        }
+        balanceUpdatedView.setTextColor(if (days == null || days >= 3) warning else secondary)
     }
 
     private fun showBills() {
@@ -320,25 +369,32 @@ class MainActivity : Activity() {
             val row = layoutInflater.inflate(R.layout.bill_row, billList, false)
             val next = bill.nextDue(today)
             val daysLeft = ChronoUnit.DAYS.between(today, next)
+            row.findViewById<TextView>(R.id.bill_row_avatar).apply {
+                text = bill.name.take(1).uppercase()
+                backgroundTintList = ColorStateList.valueOf(AVATAR_COLORS[Math.floorMod(bill.name.lowercase().hashCode(), AVATAR_COLORS.size)])
+            }
             row.findViewById<TextView>(R.id.bill_row_name).text = bill.name
-            row.findViewById<TextView>(R.id.bill_row_freq).text = bill.freq.label
             row.findViewById<TextView>(R.id.bill_row_amount).text = money.format(bill.amount)
             row.findViewById<TextView>(R.id.bill_row_due).apply {
-                text = "${next.format(shortDate)} · ${dueIn(daysLeft)}"
+                text = buildString {
+                    append("${next.format(shortDate)} · ${dueIn(daysLeft)}")
+                    if (bill.freq != Freq.MONTHLY) append(" · ${bill.freq.label}")
+                }
                 setTextColor(if (daysLeft <= 3) warning else secondary)
             }
-            row.findViewById<View>(R.id.bill_row_remove).setOnClickListener {
-                bills.remove(bill)
-                save()
-                showBills()
-            }
+            makeSwipeable(row.findViewById(R.id.bill_row_content), onTap = { openBillSheet(bill) }, onSwiped = { deleteBill(bill) })
             billList.addView(row)
         }
         billsEmpty.visibility = if (bills.isEmpty()) View.VISIBLE else View.GONE
+        billsHint.visibility = if (bills.isEmpty()) View.GONE else View.VISIBLE
         val perMonth = bills.sumOf { it.amount * it.freq.perMonth }
         val allMonthly = bills.all { it.freq == Freq.MONTHLY }
-        billsTotalView.text = "${if (allMonthly) "" else "≈ "}${money.format(perMonth)} / month"
-        recalculate()
+        billsSubtitle.text = when {
+            bills.isEmpty() -> "Add what you pay each month"
+            else -> "${bills.size} bill${if (bills.size == 1) "" else "s"} · ${if (allMonthly) "" else "about "}${money.format(perMonth)} a month"
+        }
+        val dueSoon = bills.any { ChronoUnit.DAYS.between(today, it.nextDue(today)) <= 3 }
+        navItems[2].findViewById<View>(R.id.nav_badge).visibility = if (dueSoon) View.VISIBLE else View.GONE
     }
 
     // Walks from today to the end of the month. Each payday adds a paycheck, and each bill comes out of
@@ -358,8 +414,8 @@ class MainActivity : Activity() {
         forecastList.removeAllViews()
         var running = balance
         var leftAfterNextPayday = 0.0
-        var lowest = Double.MAX_VALUE
-        var lowestStart = today
+        val chartLabels = mutableListOf<String>()
+        val chartValues = mutableListOf<Double>()
         periodStarts.forEachIndexed { i, start ->
             val end = periodStarts.getOrNull(i + 1) ?: afterMonth
             // One entry per time a bill comes due in this pay period, in date order.
@@ -371,10 +427,8 @@ class MainActivity : Activity() {
             val paycheck = if (isPayday) paycheckOn(start) else 0.0
             running += paycheck - billsDue
             if (i == 1) leftAfterNextPayday = running
-            if (running < lowest) {
-                lowest = running
-                lowestStart = start
-            }
+            chartLabels += if (isPayday) start.dayOfMonth.toString() else "Now"
+            chartValues += running
 
             val row = layoutInflater.inflate(R.layout.forecast_row, forecastList, false)
             row.findViewById<TextView>(R.id.chip_top).text =
@@ -385,15 +439,16 @@ class MainActivity : Activity() {
                 row.findViewById<TextView>(R.id.chip_top).setTextColor(secondary)
                 row.findViewById<TextView>(R.id.chip_day).setTextColor(textColor)
             }
-            row.findViewById<TextView>(R.id.forecast_title).text = if (isPayday) "Payday" else "Before payday"
-            row.findViewById<TextView>(R.id.forecast_pay).apply {
-                if (isPayday) {
-                    text = SpannableStringBuilder()
-                        .append("+" + money.format(paycheck), ForegroundColorSpan(positive), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                        .append(if (start in paycheckChanges) " pay (changed)" else " pay")
-                } else {
-                    visibility = View.GONE
-                }
+            row.findViewById<TextView>(R.id.forecast_title).text = if (isPayday) {
+                SpannableStringBuilder()
+                    .append("+" + money.format(paycheck), ForegroundColorSpan(positive), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    .apply {
+                        if (start in paycheckChanges) {
+                            append("  changed", ForegroundColorSpan(secondary), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        }
+                    }
+            } else {
+                "Before payday"
             }
             row.findViewById<TextView>(R.id.forecast_bills).text = if (due.isEmpty()) {
                 "No bills"
@@ -402,7 +457,7 @@ class MainActivity : Activity() {
                     .joinToString { (bill, times) -> if (times > 1) "${bill.name} ×$times" else bill.name }
                 SpannableStringBuilder()
                     .append("-" + money.format(billsDue), ForegroundColorSpan(negative), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    .append(" bills · $names")
+                    .append(" · $names")
             }
             showMoney(row.findViewById(R.id.forecast_left), running)
             if (isPayday) row.setOnClickListener { editPaycheck(start) }
@@ -410,38 +465,31 @@ class MainActivity : Activity() {
         }
 
         val monthName = monthEnd.month.getDisplayName(TextStyle.FULL, Locale.getDefault())
+        paydaysSubtitle.text = "Rest of $monthName · tap a payday to change its paycheck"
         endLabel.text = "End of $monthName"
         showMoney(endBalance, running)
+        chartCard.visibility = if (chartValues.size >= 2) View.VISIBLE else View.GONE
+        chart.setData(chartLabels, chartValues) { compactMoney(it) }
 
-        // Summary page
-        hero.setBackgroundResource(if (running < 0) R.drawable.hero_red else R.drawable.hero_green)
-        heroLabel.text = "End of $monthName"
-        heroAmount.text = money.format(running)
-        heroNext.text = if (paydays.isEmpty()) {
-            "No more paydays this month"
+        // Summary. Safe to spend = what's in the bank now minus the bills due before the next paycheck.
+        val safe = chartValues.first()
+        val short = safe < 0
+        hero.setBackgroundResource(if (short) R.drawable.hero_red else R.drawable.hero_green)
+        animateHero(if (short) 0.0 else safe)
+        heroNote.text = if (short) {
+            "Bills due before ${nextPayday.format(dayFormat)} are ${money.format(-safe)} more than your balance"
         } else {
-            "${money.format(leftAfterNextPayday)} left after bills on ${paydays.first().format(dayFormat)}"
+            "Your balance minus bills due before ${nextPayday.format(dayFormat)}"
+        }
+        heroEndLabel.text = "End of $monthName"
+        heroEnd.text = bigMoney(running)
+        heroNextCol.visibility = if (paydays.isEmpty()) View.INVISIBLE else View.VISIBLE
+        if (paydays.isNotEmpty()) {
+            heroNextLabel.text = "After ${paydays.first().format(shortDate)} payday"
+            heroNext.text = bigMoney(leftAfterNextPayday)
         }
 
-        // Spending money now lowers every later balance by the same amount, so the safe amount is the
-        // lowest point the balance reaches this month.
-        if (lowest >= 0) {
-            safeAmount.text = money.format(lowest)
-            safeAmount.setTextColor(positive)
-            safeNote.text = "Keeps you above \$0 for the rest of $monthName"
-            safeNote.setTextColor(secondary)
-        } else {
-            safeAmount.text = money.format(0)
-            safeAmount.setTextColor(negative)
-            safeNote.text = if (lowestStart == today) {
-                "Bills due before payday leave you ${money.format(-lowest)} short"
-            } else {
-                "You'll be ${money.format(-lowest)} short after bills on ${lowestStart.format(dayFormat)}"
-            }
-            safeNote.setTextColor(negative)
-        }
-
-        glancePayday.text = "${nextPayday.format(dayFormat)} · +${money.format(paycheckOn(nextPayday))}"
+        glancePayday.text = "${nextPayday.format(shortDate)} · +${money.format(paycheckOn(nextPayday))}"
         val nextBill = bills.minByOrNull { it.nextDue(today) }
         if (nextBill == null) {
             glanceBill.text = "None"
@@ -455,11 +503,86 @@ class MainActivity : Activity() {
         glanceDue.text = if (stillDue == 0.0) "All paid" else money.format(stillDue)
     }
 
-    private fun editPaycheck(date: LocalDate) {
+    // Counts the headline number up or down to its new value.
+    private fun animateHero(target: Double) {
+        val from = heroShown ?: target
+        heroShown = target
+        heroAnimator?.cancel()
+        if (from == target) {
+            heroAmount.text = bigMoney(target)
+            return
+        }
+        heroAnimator = ValueAnimator.ofFloat(from.toFloat(), target.toFloat()).apply {
+            duration = 450
+            interpolator = DecelerateInterpolator()
+            addUpdateListener { heroAmount.text = bigMoney((it.animatedValue as Float).toDouble()) }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    heroAmount.text = bigMoney(target)
+                }
+            })
+            start()
+        }
+    }
+
+    // ---------- Editing ----------
+
+    private fun editBalance() = askAmount("Bank balance", "What's in your account right now?", balance, signed = true) {
+        balance = it ?: 0.0
+        balanceUpdated = LocalDate.now()
+        save()
+        refresh()
+    }
+
+    private fun editIncome() = askAmount("Weekly income", "Your usual paycheck each week.", weeklyIncome) {
+        weeklyIncome = it ?: 0.0
+        save()
+        refresh()
+    }
+
+    private fun editPaycheck(date: LocalDate) = askAmount(
+        "Paycheck on ${date.format(dayFormat)}",
+        "Usually ${money.format(weeklyIncome)}. Enter this week's amount.",
+        paycheckChanges[date],
+        neutral = "Use usual" to {
+            paycheckChanges.remove(date)
+            save()
+            refresh()
+        },
+    ) { amount ->
+        if (amount == null || amount == weeklyIncome) paycheckChanges.remove(date) else paycheckChanges[date] = amount
+        save()
+        refresh()
+    }
+
+    private fun pickPayday() {
+        val days = DayOfWeek.values()
+        AlertDialog.Builder(this)
+            .setTitle("Payday")
+            .setSingleChoiceItems(days.map { it.getDisplayName(TextStyle.FULL, Locale.getDefault()) }.toTypedArray(), payday.ordinal) { dialog, which ->
+                payday = days[which]
+                save()
+                refresh()
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    // Small dialog with one money field and the keyboard already up.
+    private fun askAmount(
+        title: String,
+        message: String,
+        current: Double?,
+        signed: Boolean = false,
+        neutral: Pair<String, () -> Unit>? = null,
+        onSave: (Double?) -> Unit,
+    ) {
         val input = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-            hint = plain(weeklyIncome)
-            paycheckChanges[date]?.let { setText(plain(it)) }
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or
+                (if (signed) InputType.TYPE_NUMBER_FLAG_SIGNED else 0)
+            hint = "0.00"
+            current?.takeIf { it != 0.0 }?.let { setText(plain(it)) }
             setSelectAllOnFocus(true)
         }
         val padding = (24 * resources.displayMetrics.density).toInt()
@@ -467,27 +590,202 @@ class MainActivity : Activity() {
             setPadding(padding, 0, padding, 0)
             addView(input)
         }
-        val dialog = AlertDialog.Builder(this)
-            .setTitle("Paycheck on ${date.format(dayFormat)}")
-            .setMessage("Usually ${money.format(weeklyIncome)}. Enter this week's amount.")
+        val builder = AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(message)
             .setView(container)
-            .setPositiveButton("Save") { _, _ ->
-                val amount = parseMoney(input.text.toString())
-                if (amount == null || amount == weeklyIncome) paycheckChanges.remove(date) else paycheckChanges[date] = amount
-                save()
-                recalculate()
-            }
-            .setNeutralButton("Use usual") { _, _ ->
-                paycheckChanges.remove(date)
-                save()
-                recalculate()
-            }
+            .setPositiveButton("Save") { _, _ -> onSave(parseMoney(input.text.toString())) }
             .setNegativeButton("Cancel", null)
-            .create()
+        neutral?.let { (label, action) -> builder.setNeutralButton(label) { _, _ -> action() } }
+        val dialog = builder.create()
         dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
         dialog.show()
         input.requestFocus()
     }
+
+    // Slide-up sheet for adding a bill (existing == null) or editing one.
+    private fun openBillSheet(existing: Bill?) {
+        val today = LocalDate.now()
+        val dialog = Dialog(this, R.style.SheetDialog)
+        dialog.setContentView(R.layout.sheet_bill)
+        val window = dialog.window!!
+        window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        @Suppress("DEPRECATION")
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+
+        val root = dialog.findViewById<View>(R.id.sheet_root)
+        val scrim = dialog.findViewById<View>(R.id.sheet_scrim)
+        val sheet = dialog.findViewById<View>(R.id.sheet)
+        val nameBox = dialog.findViewById<EditText>(R.id.sheet_name)
+        val amountBox = dialog.findViewById<EditText>(R.id.sheet_amount)
+        val freqSpinner = dialog.findViewById<Spinner>(R.id.sheet_freq)
+        val dateField = dialog.findViewById<TextView>(R.id.sheet_date)
+        val saveButton = dialog.findViewById<Button>(R.id.sheet_save)
+        val deleteButton = dialog.findViewById<View>(R.id.sheet_delete)
+
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.setDecorFitsSystemWindows(false)
+            val basePadding = sheet.paddingBottom
+            root.setOnApplyWindowInsetsListener { _, insets ->
+                val bars = insets.getInsets(WindowInsets.Type.systemBars())
+                val keyboard = insets.getInsets(WindowInsets.Type.ime())
+                sheet.setPadding(sheet.paddingLeft, sheet.paddingTop, sheet.paddingRight, basePadding + maxOf(bars.bottom, keyboard.bottom))
+                insets
+            }
+        }
+
+        dialog.findViewById<TextView>(R.id.sheet_title).text = if (existing == null) "New bill" else "Edit bill"
+        saveButton.text = if (existing == null) "Add bill" else "Save"
+        deleteButton.visibility = if (existing == null) View.GONE else View.VISIBLE
+        freqSpinner.adapter = ArrayAdapter(this, R.layout.spinner_item, Freq.values().map { it.label }).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+        // When editing, keep the bill's original start date unless a new one is picked (so a bill due
+        // on the 31st stays on the 31st).
+        var pickedDate: LocalDate? = null
+        if (existing != null) {
+            nameBox.setText(existing.name)
+            amountBox.setText(plain(existing.amount))
+            freqSpinner.setSelection(existing.freq.ordinal)
+            dateField.text = "Due ${existing.nextDue(today).format(dayFormat)}"
+        }
+        fun pickDate() {
+            val start = pickedDate ?: existing?.nextDue(today) ?: today
+            DatePickerDialog(this, { _, year, month, day ->
+                pickedDate = LocalDate.of(year, month + 1, day)
+                dateField.text = "Due ${pickedDate!!.format(dayFormat)}"
+            }, start.year, start.monthValue - 1, start.dayOfMonth).show()
+        }
+        dateField.setOnClickListener { pickDate() }
+
+        fun close(then: () -> Unit = {}) {
+            hideKeyboardIn(dialog)
+            scrim.animate().alpha(0f).setDuration(180).start()
+            sheet.animate().translationY(sheet.height.toFloat()).setDuration(200)
+                .setInterpolator(DecelerateInterpolator())
+                .withEndAction {
+                    dialog.dismiss()
+                    then()
+                }.start()
+        }
+        scrim.setOnClickListener { close() }
+
+        saveButton.setOnClickListener {
+            val name = nameBox.text.toString().trim()
+            val amount = parseMoney(amountBox.text.toString())
+            val date = pickedDate ?: existing?.date
+            when {
+                name.isEmpty() -> nameBox.requestFocus()
+                amount == null -> amountBox.requestFocus()
+                date == null -> pickDate()
+                else -> {
+                    val bill = Bill(name, amount, Freq.values()[freqSpinner.selectedItemPosition], date)
+                    val index = bills.indexOf(existing)
+                    if (index >= 0) bills[index] = bill else bills.add(bill)
+                    save()
+                    haptic(saveButton)
+                    close { refresh() }
+                }
+            }
+        }
+        deleteButton.setOnClickListener { close { if (existing != null) deleteBill(existing) } }
+
+        // Slide up from the bottom.
+        scrim.alpha = 0f
+        sheet.visibility = View.INVISIBLE
+        dialog.show()
+        sheet.post {
+            sheet.translationY = sheet.height.toFloat()
+            sheet.visibility = View.VISIBLE
+            scrim.animate().alpha(1f).setDuration(200).start()
+            sheet.animate().translationY(0f).setDuration(250).setInterpolator(DecelerateInterpolator()).start()
+            if (existing == null) {
+                nameBox.requestFocus()
+                getSystemService(InputMethodManager::class.java).showSoftInput(nameBox, InputMethodManager.SHOW_IMPLICIT)
+            }
+        }
+    }
+
+    private fun hideKeyboardIn(dialog: Dialog) {
+        val token = dialog.window?.decorView?.windowToken ?: return
+        getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(token, 0)
+    }
+
+    private fun deleteBill(bill: Bill) {
+        val index = bills.indexOf(bill)
+        if (index < 0) return
+        bills.removeAt(index)
+        save()
+        refresh()
+        haptic(billList)
+        showUndo("Deleted ${bill.name}") {
+            bills.add(minOf(index, bills.size), bill)
+            save()
+            refresh()
+        }
+    }
+
+    private fun showUndo(message: String, action: () -> Unit) {
+        undoText.text = message
+        undoAction = action
+        handler.removeCallbacks(hideUndo)
+        undoBar.animate().cancel()
+        undoBar.alpha = 0f
+        undoBar.visibility = View.VISIBLE
+        undoBar.animate().alpha(1f).setDuration(150).start()
+        handler.postDelayed(hideUndo, 5000)
+    }
+
+    // Swipe a bill row left to delete it; a plain tap opens it for editing.
+    @SuppressLint("ClickableViewAccessibility")
+    private fun makeSwipeable(content: View, onTap: () -> Unit, onSwiped: () -> Unit) {
+        val slop = ViewConfiguration.get(this).scaledTouchSlop
+        var downX = 0f
+        var downY = 0f
+        var swiping = false
+        var moved = false
+        content.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX
+                    downY = event.rawY
+                    swiping = false
+                    moved = false
+                    view.drawableHotspotChanged(event.x, event.y)
+                    view.isPressed = true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - downX
+                    val dy = event.rawY - downY
+                    if (!moved && (abs(dx) > slop || abs(dy) > slop)) {
+                        moved = true
+                        view.isPressed = false
+                        if (abs(dx) > abs(dy) && dx < 0) {
+                            swiping = true
+                            view.parent.requestDisallowInterceptTouchEvent(true)
+                        }
+                    }
+                    if (swiping) view.translationX = minOf(0f, dx)
+                }
+                MotionEvent.ACTION_UP -> {
+                    view.isPressed = false
+                    when {
+                        swiping && -view.translationX > view.width * 0.35f ->
+                            view.animate().translationX(-view.width.toFloat()).setDuration(160).withEndAction { onSwiped() }.start()
+                        swiping -> view.animate().translationX(0f).setDuration(160).start()
+                        !moved -> onTap()
+                    }
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    view.isPressed = false
+                    view.animate().translationX(0f).setDuration(160).start()
+                }
+            }
+            true
+        }
+    }
+
+    // ---------- Formatting ----------
 
     private fun dueIn(days: Long) = when (days) {
         0L -> "today"
@@ -500,12 +798,33 @@ class MainActivity : Activity() {
         view.setTextColor(if (amount < 0) negative else positive)
     }
 
+    // "$3,064.50" with the cents drawn smaller.
+    private fun bigMoney(amount: Double): CharSequence {
+        val text = money.format(amount)
+        val dot = text.lastIndexOf(decimalSeparator)
+        if (dot < 0) return text
+        return SpannableString(text).apply { setSpan(RelativeSizeSpan(0.6f), dot, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
+    }
+
+    // "$1,045" for chart labels.
+    private fun compactMoney(amount: Double): String =
+        (money.clone() as NumberFormat).apply { maximumFractionDigits = 0 }.format(amount)
+
+    private fun haptic(view: View) {
+        view.performHapticFeedback(
+            if (Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.VIRTUAL_KEY
+        )
+    }
+
     private fun plain(amount: Double) = amount.toBigDecimal().stripTrailingZeros().toPlainString()
 
     private fun parseMoney(text: String): Double? = text.replace(Regex("[^0-9.-]"), "").toDoubleOrNull()
 
+    // ---------- Saving ----------
+
     private fun load() {
         balance = prefs.getString("balance", null)?.toDoubleOrNull() ?: 0.0
+        balanceUpdated = prefs.getString("balance_updated", null)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
         weeklyIncome = prefs.getString("weekly_income", null)?.toDoubleOrNull() ?: 0.0
         payday = DayOfWeek.of(prefs.getInt("payday", DayOfWeek.FRIDAY.value))
         val saved = JSONArray(prefs.getString("bills", "[]"))
@@ -541,6 +860,7 @@ class MainActivity : Activity() {
         for ((date, amount) in paycheckChanges) changes.put(date.toString(), amount)
         prefs.edit()
             .putString("balance", balance.toString())
+            .putString("balance_updated", balanceUpdated?.toString())
             .putString("weekly_income", weeklyIncome.toString())
             .putInt("payday", payday.value)
             .putString("bills", saved.toString())
@@ -548,10 +868,12 @@ class MainActivity : Activity() {
             .apply()
     }
 
-    // Looks at the latest GitHub Release and shows an "Update now" button if it's newer than this build.
+    // ---------- Updates ----------
+
+    // Looks at the latest GitHub Release; if it's newer than this build, shows the update banner.
     private fun checkForUpdate() {
         val current = BuildConfig.VERSION_NAME
-        updateStatus.text = "Checking for updates…"
+        updateStatus.text = "Checking…"
         thread {
             val result = runCatching {
                 val conn = URL("https://api.github.com/repos/$REPO/releases/latest").openConnection() as HttpURLConnection
@@ -567,12 +889,13 @@ class MainActivity : Activity() {
             runOnUiThread {
                 val update = result.getOrNull()
                 when {
-                    result.isFailure -> updateStatus.text = "Couldn't check for updates (v$current)"
-                    update == null -> updateStatus.text = "Up to date (v$current)"
+                    result.isFailure -> updateStatus.text = "Couldn't check · version $current"
+                    update == null -> updateStatus.text = "Up to date · version $current"
                     else -> {
                         updateUrl = update.second
-                        updateStatus.text = "v${update.first} is available"
-                        updateButton.visibility = View.VISIBLE
+                        updateStatus.text = "Version ${update.first} is available"
+                        updateText.text = "Version ${update.first} is ready"
+                        updateBanner.visibility = View.VISIBLE
                     }
                 }
             }
@@ -594,13 +917,13 @@ class MainActivity : Activity() {
     private fun installUpdate() {
         val url = updateUrl ?: return
         if (!packageManager.canRequestPackageInstalls()) {
-            Toast.makeText(this, "Allow Budget to install updates, then tap Update now again", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Allow Budget to install updates, then tap Update again", Toast.LENGTH_LONG).show()
             startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
             return
         }
 
         updateButton.isEnabled = false
-        updateStatus.text = "Downloading update…"
+        updateText.text = "Downloading…"
         thread {
             val result = runCatching {
                 val installer = packageManager.packageInstaller
@@ -622,7 +945,7 @@ class MainActivity : Activity() {
             }
             runOnUiThread {
                 updateButton.isEnabled = true
-                updateStatus.text = result.exceptionOrNull()?.let { "Update failed: ${it.message}" } ?: "Installing…"
+                updateText.text = result.exceptionOrNull()?.let { "Update failed: ${it.message}" } ?: "Installing…"
             }
         }
     }

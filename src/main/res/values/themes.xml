@@ -9,6 +9,15 @@
         <item name="android:windowLightStatusBar">true</item>
     </style>
 
+    <!-- Full-screen, see-through window for the slide-up "add / edit bill" sheet. -->
+    <style name="SheetDialog" parent="AppTheme">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+
     <!-- Rounded section on the page background. -->
     <style name="Card">
         <item name="android:layout_width">match_parent</item>
@@ -25,7 +34,32 @@
         <item name="android:layout_marginStart">4dp</item>
         <item name="android:layout_marginBottom">12dp</item>
         <item name="android:textColor">@color/text</item>
-        <item name="android:textSize">26sp</item>
+        <item name="android:textSize">28sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <!-- Small line under a page title. -->
+    <style name="PageSubtitle">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginStart">4dp</item>
+        <item name="android:layout_marginTop">-8dp</item>
+        <item name="android:layout_marginBottom">14dp</item>
+        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <!-- Small all-caps heading above a group of settings. -->
+    <style name="SectionLabel">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginStart">8dp</item>
+        <item name="android:layout_marginTop">4dp</item>
+        <item name="android:layout_marginBottom">8dp</item>
+        <item name="android:letterSpacing">0.06</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:textSize">12sp</item>
         <item name="android:textStyle">bold</item>
     </style>
 
@@ -35,40 +69,34 @@
         <item name="android:background">@color/divider</item>
     </style>
 
-    <!-- Tappable "label ... value ›" row on the Summary page. -->
+    <!-- Tappable "icon  label ... value ›" row. -->
     <style name="GlanceRow">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:background">?android:attr/selectableItemBackground</item>
         <item name="android:gravity">center_vertical</item>
-        <item name="android:minHeight">52dp</item>
+        <item name="android:minHeight">56dp</item>
         <item name="android:orientation">horizontal</item>
     </style>
 
-    <style name="GlanceValue">
-        <item name="android:layout_width">wrap_content</item>
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_marginStart">8dp</item>
-        <item name="android:gravity">end</item>
-        <item name="android:textColor">@color/text</item>
-        <item name="android:textSize">15sp</item>
+    <!-- Round tinted icon at the start of a row. -->
+    <style name="RowIcon">
+        <item name="android:layout_width">36dp</item>
+        <item name="android:layout_height">36dp</item>
+        <item name="android:layout_marginEnd">12dp</item>
+        <item name="android:background">@drawable/icon_circle</item>
+        <item name="android:importantForAccessibility">no</item>
+        <item name="android:padding">8dp</item>
+        <item name="android:tint">@color/chip_text</item>
     </style>
 
-    <style name="Chevron">
-        <item name="android:layout_width">wrap_content</item>
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_marginStart">8dp</item>
-        <item name="android:text">›</item>
-        <item name="android:textColor">@color/hint</item>
-        <item name="android:textSize">22sp</item>
-    </style>
-
-    <style name="DollarSign">
-        <item name="android:layout_width">wrap_content</item>
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:text">$</item>
-        <item name="android:textColor">@color/text_secondary</item>
-        <item name="android:textSize">17sp</item>
+    <style name="ChevronIcon">
+        <item name="android:layout_width">20dp</item>
+        <item name="android:layout_height">20dp</item>
+        <item name="android:layout_marginStart">4dp</item>
+        <item name="android:importantForAccessibility">no</item>
+        <item name="android:src">@drawable/ic_chevron</item>
+        <item name="android:tint">@color/hint</item>
     </style>
 
     <style name="SectionTitle">
@@ -87,11 +115,20 @@
         <item name="android:textSize">16sp</item>
     </style>
 
+    <style name="GlanceValue">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginStart">8dp</item>
+        <item name="android:gravity">end</item>
+        <item name="android:textColor">@color/text</item>
+        <item name="android:textSize">15sp</item>
+    </style>
+
     <!-- Filled, rounded text box. -->
     <style name="Input">
-        <item name="android:layout_height">44dp</item>
+        <item name="android:layout_height">48dp</item>
         <item name="android:background">@drawable/input_bg</item>
-        <item name="android:paddingHorizontal">12dp</item>
+        <item name="android:paddingHorizontal">14dp</item>
         <item name="android:textColor">@color/text</item>
         <item name="android:textColorHint">@color/hint</item>
         <item name="android:textSize">16sp</item>
@@ -99,13 +136,13 @@
 
     <!-- "$" box that holds a borderless EditText. -->
     <style name="MoneyBox">
-        <item name="android:layout_width">150dp</item>
-        <item name="android:layout_height">44dp</item>
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">48dp</item>
         <item name="android:addStatesFromChildren">true</item>
         <item name="android:background">@drawable/input_bg</item>
         <item name="android:gravity">center_vertical</item>
         <item name="android:orientation">horizontal</item>
-        <item name="android:paddingHorizontal">12dp</item>
+        <item name="android:paddingHorizontal">14dp</item>
     </style>
 
     <style name="MoneyInput">
@@ -113,22 +150,32 @@
         <item name="android:layout_height">match_parent</item>
         <item name="android:layout_weight">1</item>
         <item name="android:background">@null</item>
-        <item name="android:gravity">end|center_vertical</item>
+        <item name="android:gravity">start|center_vertical</item>
         <item name="android:hint">0.00</item>
+        <item name="android:paddingStart">6dp</item>
         <item name="android:textColor">@color/text</item>
         <item name="android:textColorHint">@color/hint</item>
-        <item name="android:textSize">17sp</item>
+        <item name="android:textSize">16sp</item>
+    </style>
+
+    <style name="DollarSign">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:text">$</item>
+        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:textSize">16sp</item>
     </style>
 
     <style name="GreenButton">
         <item name="android:layout_width">wrap_content</item>
-        <item name="android:layout_height">44dp</item>
+        <item name="android:layout_height">48dp</item>
         <item name="android:background">@drawable/button_green</item>
         <item name="android:minWidth">72dp</item>
-        <item name="android:paddingHorizontal">16dp</item>
+        <item name="android:paddingHorizontal">20dp</item>
         <item name="android:stateListAnimator">@null</item>
         <item name="android:textAllCaps">false</item>
         <item name="android:textColor">@android:color/white</item>
-        <item name="android:textSize">15sp</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textStyle">bold</item>
     </style>
 </resources>
