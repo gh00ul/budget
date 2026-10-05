@@ -652,10 +652,11 @@ class MainActivity : Activity() {
     private fun spendAccounts(): Set<String> =
         bank.accounts.filter { it.id == bank.accountId || it.isCredit }.map { it.id }.toSet()
 
-    // Moving money between your own accounts, or paying a card or loan. Cash from an ATM is spending.
+    // Moving money between your own accounts, or paying a card or loan. Spending, though: cash from an ATM,
+    // money sent through apps like Cash App or Venmo (and money back through them), and pay-later installments.
     private fun isTransfer(t: BankTxn): Boolean {
         val category = "${t.category} ${t.detail}".lowercase()
-        if ("withdrawal" in category) return false
+        if ("withdrawal" in category || "from apps" in category || "bnpl" in category) return false
         val name = t.name.uppercase()
         return "transfer in" in category || "transfer out" in category || "loan payment" in category ||
             "credit card payment" in category || name.contains("PAYMENT TO CREDIT CARD") ||
@@ -666,18 +667,20 @@ class MainActivity : Activity() {
 
     private fun isPayroll(t: BankTxn): Boolean {
         val name = t.name.uppercase()
-        return "wages" in t.detail.lowercase() || name.contains("PAYROLL") || name.contains("DIR DEP") ||
+        val detail = t.detail.lowercase()
+        return "wages" in detail || "salary" in detail || name.contains("PAYROLL") || name.contains("DIR DEP") ||
             name.contains("DIRECT DEP") || name.contains("SALARY")
     }
 
-    // The deposit that is that payday's paycheck: into checking, at least half the expected pay, within two
-    // days before (paid early) to a day after.
+    // The deposit that is that payday's paycheck: income into checking, at least half the expected pay, from
+    // two days before (paid early) to a day after.
     private fun payDeposit(payday: LocalDate, upTo: LocalDate = LocalDate.now()): BankTxn? {
         val expected = paycheckOn(payday)
         if (expected <= 0) return null
         val last = minOf(payday.plusDays(1).toEpochDay(), upTo.toEpochDay())
         return bank.txns.firstOrNull {
-            it.account == bank.accountId && it.amount >= expected * 0.5 && (isPayroll(it) || !isTransfer(it)) &&
+            it.account == bank.accountId && it.amount >= expected * 0.5 &&
+                (isPayroll(it) || it.category.startsWith("Income", true)) &&
                 it.date.toEpochDay() in payday.minusDays(2).toEpochDay()..last
         }
     }
@@ -996,7 +999,8 @@ class MainActivity : Activity() {
         section("Spending since ${period.format(dayFormat)}", counted)
         section("Bills (not counted)", week.filter { it.kind == Kind.BILL })
         section("Not counted", week.filter { it.kind != Kind.SPEND && it.kind != Kind.BILL })
-        dialogParagraph(box, "Tap one to change how it counts. Transfers, card payments and paychecks don't count as spending.")
+        dialogParagraph(box, "Tap one to change how it counts. Moving money between your own accounts, card and loan " +
+            "payments, and paychecks don't count as spending.")
         dialog = AlertDialog.Builder(this)
             .setTitle("Spent ${money.format(spent)} this week")
             .setView(ScrollView(this).apply { addView(box) })
