@@ -1270,6 +1270,11 @@ class MainActivity : Activity() {
         val period = lastPayday(today)
         val oldDate = balanceUpdated
         val oldBalance = effectiveBalance()
+        // The day tracking started: a balance lower than the one entered earlier today is either spending or
+        // a fix to that earlier number, so ask (a logged purchase is always spending).
+        val drop = if (logged == null && oldDate == today && weekStart == period && weekStartTaken == today &&
+            !weekStartProjected
+        ) cents(oldBalance - value) else 0.0
         if (weekStart != period) {
             // First balance this pay period. Carry the last one forward to payday so spending since payday
             // counts; with no earlier balance, start counting from today.
@@ -1283,9 +1288,6 @@ class MainActivity : Activity() {
                 weekStartTaken = today
                 weekStartProjected = false
             }
-        } else if (weekStartTaken == today) {
-            weekStartBalance = value // a same-day correction replaces the starting point
-            weekStartProjected = false
         }
         balance = value
         balanceUpdated = today
@@ -1316,12 +1318,28 @@ class MainActivity : Activity() {
             }
         }
 
+        fun askCorrection(explained: Double) {
+            val unexplained = cents(drop - explained)
+            if (unexplained < 0.005) return finish()
+            AlertDialog.Builder(this)
+                .setTitle("Did you spend ${money.format(unexplained)}?")
+                .setMessage("This is ${money.format(unexplained)} less than the ${money.format(oldBalance)} you entered " +
+                    "earlier today. Was that spending, or was ${money.format(oldBalance)} a mistake?")
+                .setPositiveButton("Spending") { _, _ -> finish() }
+                .setNegativeButton("A mistake") { _, _ ->
+                    weekStartBalance = cents(weekStartBalance - unexplained)
+                    finish()
+                }
+                .setOnCancelListener { finish() }
+                .show()
+        }
+
         // Bills due today: if the balance dropped by at least that much, ask whether they've come out.
         fun askBillsOut() {
             val dueToday = bills.filter { it.unpaid(today, today.plusDays(1)).isNotEmpty() }
             val total = dueToday.sumOf { it.amount }
             val spent = computeWeek(today).spent ?: 0.0
-            if (logged != null || dueToday.isEmpty() || spent < total - 0.004) return finish()
+            if (logged != null || dueToday.isEmpty() || spent < total - 0.004) return askCorrection(0.0)
             val names = dueToday.joinToString { it.name }
             AlertDialog.Builder(this)
                 .setTitle("Did $names come out today?")
@@ -1331,10 +1349,12 @@ class MainActivity : Activity() {
                         val i = bills.indexOf(bill)
                         if (i >= 0) bills[i] = bill.withPaid(today, today)
                     }
-                    finish()
+                    // Paid marks only count after the starting balance's day, so take it off that balance instead.
+                    if (weekStartTaken == today) weekStartBalance = cents(weekStartBalance - total)
+                    askCorrection(total)
                 }
-                .setNegativeButton("Not yet") { _, _ -> finish() }
-                .setOnCancelListener { finish() }
+                .setNegativeButton("Not yet") { _, _ -> askCorrection(0.0) }
+                .setOnCancelListener { askCorrection(0.0) }
                 .show()
         }
 
