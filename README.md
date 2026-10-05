@@ -1,6 +1,6 @@
 # Budget
 
-A very basic Android budget app: enter your monthly income, list your bills, and it shows what's left over.
+A very basic Android budget app. Enter your bank balance, weekly income, payday, and bills (with the day they are due), and it shows how much is left after each payday and your balance at the end of the month.
 
 - Your numbers stay on your phone.
 - When the app opens it checks this repo's latest GitHub Release in the background. If there's a newer version, an **Update now** button appears. Tap it, confirm Android's prompt, and you're updated.
