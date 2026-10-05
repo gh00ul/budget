@@ -1,0 +1,30 @@
+# Push a tag like v1.0.1 and this builds Budget.exe and publishes it as a GitHub Release.
+# The app checks the latest release when it opens and offers the update.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build
+        shell: bash
+        run: dotnet publish -c Release -o out -p:Version=${GITHUB_REF_NAME#v}
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" out/Budget.exe --title "$GITHUB_REF_NAME" --generate-notes
