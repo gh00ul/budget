@@ -98,73 +98,98 @@
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- Bills -->
+            <!-- Bills: tap the header to show or hide the list -->
             <LinearLayout style="@style/Card">
 
                 <LinearLayout
+                    android:id="@+id/bills_header"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:background="?android:attr/selectableItemBackground"
                     android:gravity="center_vertical"
+                    android:minHeight="32dp"
                     android:orientation="horizontal">
 
                     <TextView
                         style="@style/SectionTitle"
-                        android:layout_width="0dp"
-                        android:layout_weight="1"
                         android:text="Bills" />
 
                     <TextView
                         android:id="@+id/bills_total"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="14sp" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:id="@+id/bill_list"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:divider="@drawable/divider"
-                    android:orientation="vertical"
-                    android:showDividers="middle" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <EditText
-                        android:id="@+id/bill_name"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
+                        android:layout_marginHorizontal="12dp"
                         android:layout_weight="1"
-                        android:hint="Bill"
-                        android:inputType="textCapWords" />
+                        android:gravity="end"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="14sp" />
 
-                    <EditText
-                        android:id="@+id/bill_day"
-                        android:layout_width="56dp"
+                    <TextView
+                        android:id="@+id/bills_toggle"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:hint="Day"
-                        android:inputType="number"
-                        android:maxLength="2" />
+                        android:textColor="@color/green"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
 
-                    <EditText
-                        android:id="@+id/bill_amount"
-                        android:layout_width="88dp"
+                <TextView
+                    android:id="@+id/bills_next"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="13sp" />
+
+                <LinearLayout
+                    android:id="@+id/bills_body"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:id="@+id/bill_list"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:hint="Amount"
-                        android:inputType="numberDecimal" />
+                        android:layout_marginTop="4dp"
+                        android:divider="@drawable/divider"
+                        android:orientation="vertical"
+                        android:showDividers="middle" />
 
-                    <Button
-                        android:id="@+id/add_button"
-                        style="@style/GreenButton"
-                        android:layout_marginStart="4dp"
-                        android:text="Add" />
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <EditText
+                            android:id="@+id/bill_name"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:hint="Bill"
+                            android:inputType="textCapWords" />
+
+                        <EditText
+                            android:id="@+id/bill_day"
+                            android:layout_width="56dp"
+                            android:layout_height="wrap_content"
+                            android:hint="Day"
+                            android:inputType="number"
+                            android:maxLength="2" />
+
+                        <EditText
+                            android:id="@+id/bill_amount"
+                            android:layout_width="88dp"
+                            android:layout_height="wrap_content"
+                            android:hint="Amount"
+                            android:inputType="numberDecimal" />
+
+                        <Button
+                            android:id="@+id/add_button"
+                            style="@style/GreenButton"
+                            android:layout_marginStart="4dp"
+                            android:text="Add" />
+                    </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
 

@@ -60,9 +60,13 @@ class MainActivity : Activity() {
     private var payday = DayOfWeek.FRIDAY
     // One-off paycheck amounts (overtime, short week) that replace the weekly income on that date.
     private val paycheckChanges = mutableMapOf<LocalDate, Double>()
+    private var billsOpen = false
     private var updateUrl: String? = null
 
     private lateinit var billList: LinearLayout
+    private lateinit var billsBody: View
+    private lateinit var billsToggle: TextView
+    private lateinit var billsNext: TextView
     private lateinit var billsTotalView: TextView
     private lateinit var forecastList: LinearLayout
     private lateinit var endCard: View
@@ -77,6 +81,9 @@ class MainActivity : Activity() {
         fitToSystemBars()
 
         billList = findViewById(R.id.bill_list)
+        billsBody = findViewById(R.id.bills_body)
+        billsToggle = findViewById(R.id.bills_toggle)
+        billsNext = findViewById(R.id.bills_next)
         billsTotalView = findViewById(R.id.bills_total)
         forecastList = findViewById(R.id.forecast_list)
         endCard = findViewById(R.id.end_card)
@@ -127,6 +134,11 @@ class MainActivity : Activity() {
                 }
             }
         }
+        findViewById<View>(R.id.bills_header).setOnClickListener {
+            billsOpen = !billsOpen
+            prefs.edit().putBoolean("bills_open", billsOpen).apply()
+            showBills()
+        }
         updateButton.setOnClickListener { installUpdate() }
 
         checkForUpdate()
@@ -167,23 +179,21 @@ class MainActivity : Activity() {
         })
     }
 
+    // The bill list folds away to a one-line summary; it's always open while there are no bills yet.
     private fun showBills() {
         val today = LocalDate.now()
+        fun daysUntilDue(bill: Bill) = ChronoUnit.DAYS.between(today, nextDueDate(bill.day, today))
+
         billList.removeAllViews()
         for (bill in bills) {
             val row = layoutInflater.inflate(R.layout.bill_row, billList, false)
             row.findViewById<TextView>(R.id.bill_row_name).text = bill.name
             row.findViewById<TextView>(R.id.bill_row_amount).text = money.format(bill.amount)
-
-            val daysLeft = ChronoUnit.DAYS.between(today, nextDueDate(bill.day, today))
-            val dueView = row.findViewById<TextView>(R.id.bill_row_due)
-            dueView.text = "Due the ${ordinal(bill.day)} · " + when (daysLeft) {
-                0L -> "today"
-                1L -> "tomorrow"
-                else -> "in $daysLeft days"
+            val daysLeft = daysUntilDue(bill)
+            row.findViewById<TextView>(R.id.bill_row_due).apply {
+                text = "${ordinal(bill.day)} · ${dueIn(daysLeft)}"
+                setTextColor(if (daysLeft <= 3) ORANGE else GRAY)
             }
-            dueView.setTextColor(if (daysLeft <= 3) ORANGE else GRAY)
-
             row.findViewById<View>(R.id.bill_row_remove).setOnClickListener {
                 bills.remove(bill)
                 save()
@@ -191,8 +201,27 @@ class MainActivity : Activity() {
             }
             billList.addView(row)
         }
+
+        val open = billsOpen || bills.isEmpty()
+        billsBody.visibility = if (open) View.VISIBLE else View.GONE
+        billsToggle.visibility = if (bills.isEmpty()) View.GONE else View.VISIBLE
+        billsToggle.text = if (open) "Hide ▴" else "Show ▾"
         billsTotalView.text = "${money.format(bills.sumOf { it.amount })} / month"
+
+        val next = bills.minByOrNull { daysUntilDue(it) }
+        billsNext.visibility = if (next == null) View.GONE else View.VISIBLE
+        if (next != null) {
+            val daysLeft = daysUntilDue(next)
+            billsNext.text = "Next: ${next.name} ${money.format(next.amount)}, due ${dueIn(daysLeft)}"
+            billsNext.setTextColor(if (daysLeft <= 3) ORANGE else GRAY)
+        }
         recalculate()
+    }
+
+    private fun dueIn(days: Long) = when (days) {
+        0L -> "today"
+        1L -> "tomorrow"
+        else -> "in $days days"
     }
 
     // Walks from today to the end of the month. Each payday adds a paycheck, and each bill comes out of
@@ -305,6 +334,7 @@ class MainActivity : Activity() {
         balance = prefs.getString("balance", null)?.toDoubleOrNull() ?: 0.0
         weeklyIncome = prefs.getString("weekly_income", null)?.toDoubleOrNull() ?: 0.0
         payday = DayOfWeek.of(prefs.getInt("payday", DayOfWeek.FRIDAY.value))
+        billsOpen = prefs.getBoolean("bills_open", false)
         val saved = JSONArray(prefs.getString("bills", "[]"))
         for (i in 0 until saved.length()) {
             val bill = saved.getJSONObject(i)

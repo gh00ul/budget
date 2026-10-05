@@ -1,31 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- One bill on a single line: name, due date, amount, remove. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:gravity="center_vertical"
-    android:orientation="horizontal"
-    android:paddingVertical="4dp">
+    android:minHeight="44dp"
+    android:orientation="horizontal">
 
-    <LinearLayout
+    <TextView
+        android:id="@+id/bill_row_name"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:orientation="vertical">
+        android:ellipsize="end"
+        android:singleLine="true"
+        android:textColor="@color/text"
+        android:textSize="16sp" />
 
-        <TextView
-            android:id="@+id/bill_row_name"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="@color/text"
-            android:textSize="16sp" />
-
-        <TextView
-            android:id="@+id/bill_row_due"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="@color/text_secondary"
-            android:textSize="13sp" />
-    </LinearLayout>
+    <TextView
+        android:id="@+id/bill_row_due"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="8dp"
+        android:textColor="@color/text_secondary"
+        android:textSize="13sp" />
 
     <TextView
         android:id="@+id/bill_row_amount"
@@ -40,8 +38,10 @@
         android:layout_height="wrap_content"
         android:background="?android:attr/selectableItemBackgroundBorderless"
         android:contentDescription="Remove bill"
-        android:padding="12dp"
+        android:paddingVertical="10dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="2dp"
         android:text="✕"
         android:textColor="#9E9E9E"
-        android:textSize="16sp" />
+        android:textSize="15sp" />
 </LinearLayout>
