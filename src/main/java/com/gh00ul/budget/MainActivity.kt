@@ -1,23 +1,28 @@
 package com.gh00ul.budget
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
+import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.text.Editable
+import android.text.InputType
 import android.text.TextWatcher
 import android.view.View
 import android.view.WindowInsets
+import android.view.WindowManager
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
@@ -31,11 +36,16 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
+import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 import java.util.Locale
 import kotlin.concurrent.thread
 
 private const val REPO = "gh00ul/budget"
+private const val GREEN = 0xFF2E7D32.toInt()
+private const val RED = 0xFFC62828.toInt()
+private const val ORANGE = 0xFFE65100.toInt()
+private const val GRAY = 0xFF757575.toInt()
 
 class MainActivity : Activity() {
     // day = day of the month the bill is due (1-31).
@@ -43,15 +53,19 @@ class MainActivity : Activity() {
 
     private val prefs by lazy { getSharedPreferences("budget", MODE_PRIVATE) }
     private val money = NumberFormat.getCurrencyInstance()
+    private val dayFormat = DateTimeFormatter.ofPattern("EEE, MMM d")
     private val bills = mutableListOf<Bill>()
     private var balance = 0.0
     private var weeklyIncome = 0.0
     private var payday = DayOfWeek.FRIDAY
+    // One-off paycheck amounts (overtime, short week) that replace the weekly income on that date.
+    private val paycheckChanges = mutableMapOf<LocalDate, Double>()
     private var updateUrl: String? = null
 
     private lateinit var billList: LinearLayout
-    private lateinit var billsTotal: TextView
+    private lateinit var billsTotalView: TextView
     private lateinit var forecastList: LinearLayout
+    private lateinit var endCard: View
     private lateinit var endLabel: TextView
     private lateinit var endBalance: TextView
     private lateinit var updateStatus: TextView
@@ -63,8 +77,9 @@ class MainActivity : Activity() {
         fitToSystemBars()
 
         billList = findViewById(R.id.bill_list)
-        billsTotal = findViewById(R.id.bills_total)
+        billsTotalView = findViewById(R.id.bills_total)
         forecastList = findViewById(R.id.forecast_list)
+        endCard = findViewById(R.id.end_card)
         endLabel = findViewById(R.id.end_label)
         endBalance = findViewById(R.id.end_balance)
         updateStatus = findViewById(R.id.update_status)
@@ -114,8 +129,13 @@ class MainActivity : Activity() {
         }
         updateButton.setOnClickListener { installUpdate() }
 
-        showBills()
         checkForUpdate()
+    }
+
+    // Redraw on every return to the app so "due in X days" and the paydays stay current.
+    override fun onResume() {
+        super.onResume()
+        showBills()
     }
 
     // Android 15+ draws the app behind the status/navigation bars, so pad the content clear of them.
@@ -135,7 +155,7 @@ class MainActivity : Activity() {
 
     private fun bindMoneyField(id: Int, initial: Double, onChange: (Double) -> Unit) {
         val box = findViewById<EditText>(id)
-        if (initial != 0.0) box.setText(initial.toBigDecimal().stripTrailingZeros().toPlainString())
+        if (initial != 0.0) box.setText(plain(initial))
         box.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -148,12 +168,22 @@ class MainActivity : Activity() {
     }
 
     private fun showBills() {
+        val today = LocalDate.now()
         billList.removeAllViews()
         for (bill in bills) {
             val row = layoutInflater.inflate(R.layout.bill_row, billList, false)
             row.findViewById<TextView>(R.id.bill_row_name).text = bill.name
-            row.findViewById<TextView>(R.id.bill_row_due).text = "Due the ${ordinal(bill.day)}"
             row.findViewById<TextView>(R.id.bill_row_amount).text = money.format(bill.amount)
+
+            val daysLeft = ChronoUnit.DAYS.between(today, nextDueDate(bill.day, today))
+            val dueView = row.findViewById<TextView>(R.id.bill_row_due)
+            dueView.text = "Due the ${ordinal(bill.day)} · " + when (daysLeft) {
+                0L -> "today"
+                1L -> "tomorrow"
+                else -> "in $daysLeft days"
+            }
+            dueView.setTextColor(if (daysLeft <= 3) ORANGE else GRAY)
+
             row.findViewById<View>(R.id.bill_row_remove).setOnClickListener {
                 bills.remove(bill)
                 save()
@@ -161,7 +191,7 @@ class MainActivity : Activity() {
             }
             billList.addView(row)
         }
-        billsTotal.text = "${money.format(bills.sumOf { it.amount })} / month"
+        billsTotalView.text = "${money.format(bills.sumOf { it.amount })} / month"
         recalculate()
     }
 
@@ -184,28 +214,79 @@ class MainActivity : Activity() {
                 val dueDate = today.withDayOfMonth(minOf(it.day, today.lengthOfMonth()))
                 !dueDate.isBefore(start) && dueDate.isBefore(end)
             }
+            val billsDue = due.sumOf { it.amount }
             val isPayday = i > 0
-            if (isPayday) running += weeklyIncome
-            running -= due.sumOf { it.amount }
+            val paycheck = if (isPayday) paycheckChanges[start] ?: weeklyIncome else 0.0
+            running += paycheck - billsDue
 
             val row = layoutInflater.inflate(R.layout.forecast_row, forecastList, false)
             row.findViewById<TextView>(R.id.forecast_title).text =
-                if (isPayday) "Payday · ${start.format(DateTimeFormatter.ofPattern("EEE, MMM d"))}" else "Today"
-            row.findViewById<TextView>(R.id.forecast_detail).text = buildString {
-                if (isPayday) append("+${money.format(weeklyIncome)} · ")
-                append(if (due.isEmpty()) "No bills due" else "Pays " + due.joinToString { "${it.name} ${money.format(it.amount)}" })
+                if (isPayday) "Payday · ${start.format(dayFormat)}" else "Today, before payday"
+            if (isPayday) {
+                row.findViewById<TextView>(R.id.forecast_paycheck_label).text =
+                    if (start in paycheckChanges) "Paycheck (changed)" else "Paycheck"
+                row.findViewById<TextView>(R.id.forecast_paycheck).text = "+" + money.format(paycheck)
+                row.setOnClickListener { editPaycheck(start) }
+            } else {
+                row.findViewById<View>(R.id.forecast_paycheck_row).visibility = View.GONE
             }
-            showMoney(row.findViewById(R.id.forecast_amount), running)
+            row.findViewById<TextView>(R.id.forecast_bills_label).text =
+                if (due.isEmpty()) "No bills" else "Bills: " + due.joinToString { it.name }
+            row.findViewById<TextView>(R.id.forecast_bills).text =
+                if (due.isEmpty()) money.format(0) else "-" + money.format(billsDue)
+            showMoney(row.findViewById(R.id.forecast_left), running)
             forecastList.addView(row)
         }
 
         endLabel.text = "End of month (${monthEnd.format(DateTimeFormatter.ofPattern("MMM d"))})"
         showMoney(endBalance, running)
+        endCard.backgroundTintList = ColorStateList.valueOf(if (running < 0) 0xFFFFEBEE.toInt() else 0xFFE8F5E9.toInt())
+    }
+
+    private fun editPaycheck(date: LocalDate) {
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            hint = plain(weeklyIncome)
+            paycheckChanges[date]?.let { setText(plain(it)) }
+            setSelectAllOnFocus(true)
+        }
+        val padding = (24 * resources.displayMetrics.density).toInt()
+        val container = FrameLayout(this).apply {
+            setPadding(padding, 0, padding, 0)
+            addView(input)
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Paycheck on ${date.format(dayFormat)}")
+            .setMessage("Usually ${money.format(weeklyIncome)}. Enter this week's amount.")
+            .setView(container)
+            .setPositiveButton("Save") { _, _ ->
+                val amount = parseMoney(input.text.toString())
+                if (amount == null || amount == weeklyIncome) paycheckChanges.remove(date) else paycheckChanges[date] = amount
+                save()
+                recalculate()
+            }
+            .setNeutralButton("Use usual") { _, _ ->
+                paycheckChanges.remove(date)
+                save()
+                recalculate()
+            }
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+        dialog.show()
+        input.requestFocus()
+    }
+
+    private fun nextDueDate(day: Int, today: LocalDate): LocalDate {
+        val thisMonth = today.withDayOfMonth(minOf(day, today.lengthOfMonth()))
+        if (!thisMonth.isBefore(today)) return thisMonth
+        val nextMonth = today.plusMonths(1)
+        return nextMonth.withDayOfMonth(minOf(day, nextMonth.lengthOfMonth()))
     }
 
     private fun showMoney(view: TextView, amount: Double) {
         view.text = money.format(amount)
-        view.setTextColor(if (amount < 0) 0xFFC62828.toInt() else 0xFF2E7D32.toInt())
+        view.setTextColor(if (amount < 0) RED else GREEN)
     }
 
     private fun ordinal(n: Int) = n.toString() + when {
@@ -215,6 +296,8 @@ class MainActivity : Activity() {
         n % 10 == 3 -> "rd"
         else -> "th"
     }
+
+    private fun plain(amount: Double) = amount.toBigDecimal().stripTrailingZeros().toPlainString()
 
     private fun parseMoney(text: String): Double? = text.replace(Regex("[^0-9.-]"), "").toDoubleOrNull()
 
@@ -228,6 +311,13 @@ class MainActivity : Activity() {
             bills.add(Bill(bill.getString("name"), bill.getDouble("amount"), bill.optInt("day", 1)))
         }
         bills.sortBy { it.day }
+
+        val today = LocalDate.now()
+        val changes = JSONObject(prefs.getString("paycheck_changes", "{}"))
+        for (key in changes.keys()) {
+            val date = runCatching { LocalDate.parse(key) }.getOrNull() ?: continue
+            if (!date.isBefore(today)) paycheckChanges[date] = changes.getDouble(key) // drop past weeks
+        }
     }
 
     private fun save() {
@@ -235,11 +325,14 @@ class MainActivity : Activity() {
         for (bill in bills) {
             saved.put(JSONObject().put("name", bill.name).put("amount", bill.amount).put("day", bill.day))
         }
+        val changes = JSONObject()
+        for ((date, amount) in paycheckChanges) changes.put(date.toString(), amount)
         prefs.edit()
             .putString("balance", balance.toString())
             .putString("weekly_income", weeklyIncome.toString())
             .putInt("payday", payday.value)
             .putString("bills", saved.toString())
+            .putString("paycheck_changes", changes.toString())
             .apply()
     }
 
