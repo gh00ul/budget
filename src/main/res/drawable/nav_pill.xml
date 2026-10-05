@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Highlight behind the selected tab's icon. -->
+<!-- Highlight behind the selected tab's icon (the outline keeps it visible for low vision). -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
     <solid android:color="@color/nav_indicator" />
+    <stroke android:width="1.5dp" android:color="@color/positive" />
     <corners android:radius="16dp" />
 </shape>

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Four pages (only one visible at a time) above a bottom tab bar. -->
+<!-- Three pages (only one visible at a time) above a bottom tab bar. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/root"
     android:layout_width="match_parent"
@@ -24,14 +24,39 @@
                 android:orientation="vertical"
                 android:padding="16dp">
 
-                <TextView
-                    style="@style/PageTitle"
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
                     android:layout_marginTop="24dp"
-                    android:text="Budget" />
+                    android:orientation="horizontal">
 
-                <TextView
-                    android:id="@+id/today_label"
-                    style="@style/PageSubtitle" />
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            style="@style/PageTitle"
+                            android:accessibilityHeading="true"
+                            android:text="Budget" />
+
+                        <TextView
+                            android:id="@+id/today_label"
+                            style="@style/PageSubtitle" />
+                    </LinearLayout>
+
+                    <ImageButton
+                        android:id="@+id/settings_button"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:background="?android:attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Settings"
+                        android:padding="12dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_tab_settings"
+                        android:tint="@color/text_secondary" />
+                </LinearLayout>
 
                 <!-- Only shown when a newer version is on GitHub -->
                 <LinearLayout
@@ -42,9 +67,9 @@
                     android:background="@drawable/banner"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:paddingVertical="10dp"
+                    android:paddingVertical="8dp"
                     android:paddingStart="16dp"
-                    android:paddingEnd="10dp"
+                    android:paddingEnd="8dp"
                     android:visibility="gone">
 
                     <TextView
@@ -58,174 +83,45 @@
                     <Button
                         android:id="@+id/update_button"
                         style="@style/GreenButton"
-                        android:layout_height="40dp"
                         android:text="Update" />
                 </LinearLayout>
 
-                <!-- Safe to spend. Tap for the full breakdown. -->
+                <!-- First run: shown until pay and bank balance are set -->
                 <LinearLayout
-                    android:id="@+id/hero"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="12dp"
-                    android:background="@drawable/hero_green"
-                    android:foreground="?android:attr/selectableItemBackground"
-                    android:orientation="vertical"
-                    android:padding="20dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal">
-
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="Safe to spend"
-                            android:textColor="#D9FFFFFF"
-                            android:textSize="15sp" />
-
-                        <ImageView
-                            android:layout_width="20dp"
-                            android:layout_height="20dp"
-                            android:importantForAccessibility="no"
-                            android:src="@drawable/ic_info"
-                            android:tint="#CCFFFFFF" />
-                    </LinearLayout>
+                    android:id="@+id/setup_card"
+                    style="@style/Card"
+                    android:visibility="gone">
 
                     <TextView
-                        android:id="@+id/hero_amount"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:fontFeatureSettings="tnum"
-                        android:letterSpacing="-0.02"
-                        android:maxLines="1"
-                        android:textColor="@android:color/white"
-                        android:textSize="44sp"
-                        android:textStyle="bold" />
+                        style="@style/SectionTitle"
+                        android:accessibilityHeading="true"
+                        android:text="Let's work out your Safe to spend"
+                        android:textSize="20sp" />
 
                     <TextView
-                        android:id="@+id/hero_note"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textColor="#E6FFFFFF"
+                        android:layout_marginTop="2dp"
+                        android:layout_marginBottom="6dp"
+                        android:text="Three quick things. About a minute."
+                        android:textColor="@color/text_secondary"
                         android:textSize="14sp" />
 
-                    <!-- The math behind the number, e.g. "$750 pay − $424.48 bills − $60 spent" -->
-                    <TextView
-                        android:id="@+id/hero_breakdown"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:textColor="#CCFFFFFF"
-                        android:textSize="13sp" />
-                </LinearLayout>
-
-                <!-- End of month and Cushion -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="12dp"
-                    android:orientation="horizontal">
-
                     <LinearLayout
-                        style="@style/Tile"
-                        android:layout_marginEnd="6dp">
-
-                        <TextView
-                            android:id="@+id/hero_end_label"
-                            style="@style/TileLabel" />
-
-                        <TextView
-                            android:id="@+id/hero_end"
-                            style="@style/TileValue" />
-                    </LinearLayout>
-
-                    <LinearLayout
-                        style="@style/Tile"
-                        android:layout_marginStart="6dp">
-
-                        <TextView
-                            style="@style/TileLabel"
-                            android:text="Cushion" />
-
-                        <TextView
-                            android:id="@+id/hero_cushion"
-                            style="@style/TileValue" />
-                    </LinearLayout>
-                </LinearLayout>
-
-                <!-- Bank balance: tap to change -->
-                <LinearLayout
-                    android:id="@+id/balance_row"
-                    style="@style/Card"
-                    android:foreground="?android:attr/selectableItemBackground"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <ImageView
-                        style="@style/RowIcon"
-                        android:src="@drawable/ic_wallet" />
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Bank balance"
-                            android:textColor="@color/text"
-                            android:textSize="16sp" />
-
-                        <TextView
-                            android:id="@+id/balance_updated"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:textSize="13sp" />
-                    </LinearLayout>
-
-                    <TextView
-                        android:id="@+id/balance_value"
-                        style="@style/Money"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:textColor="@color/text"
-                        android:textSize="16sp" />
-
-                    <ImageView
-                        android:layout_width="18dp"
-                        android:layout_height="18dp"
-                        android:layout_marginStart="8dp"
-                        android:importantForAccessibility="no"
-                        android:src="@drawable/ic_edit"
-                        android:tint="@color/hint" />
-                </LinearLayout>
-
-                <!-- At a glance: each row jumps to the matching tab -->
-                <LinearLayout
-                    style="@style/Card"
-                    android:paddingVertical="4dp">
-
-                    <LinearLayout
-                        android:id="@+id/glance_payday_row"
+                        android:id="@+id/setup_pay_row"
                         style="@style/GlanceRow">
 
                         <ImageView
+                            android:id="@+id/setup_pay_icon"
                             style="@style/RowIcon"
-                            android:src="@drawable/ic_tab_paydays" />
+                            android:src="@drawable/ic_wallet" />
 
                         <TextView
                             style="@style/GlanceLabel"
-                            android:text="Next payday" />
+                            android:text="Your weekly pay" />
 
                         <TextView
-                            android:id="@+id/glance_payday"
+                            android:id="@+id/setup_pay_value"
                             style="@style/GlanceValue" />
 
                         <ImageView style="@style/ChevronIcon" />
@@ -236,45 +132,304 @@
                         android:layout_marginStart="52dp" />
 
                     <LinearLayout
-                        android:id="@+id/glance_bill_row"
+                        android:id="@+id/setup_bills_row"
                         style="@style/GlanceRow">
 
                         <ImageView
-                            style="@style/RowIcon"
-                            android:src="@drawable/ic_bell" />
-
-                        <TextView
-                            style="@style/GlanceLabel"
-                            android:text="Next bill" />
-
-                        <TextView
-                            android:id="@+id/glance_bill"
-                            style="@style/GlanceValue" />
-
-                        <ImageView style="@style/ChevronIcon" />
-                    </LinearLayout>
-
-                    <View
-                        style="@style/Divider"
-                        android:layout_marginStart="52dp" />
-
-                    <LinearLayout
-                        android:id="@+id/glance_due_row"
-                        style="@style/GlanceRow">
-
-                        <ImageView
+                            android:id="@+id/setup_bills_icon"
                             style="@style/RowIcon"
                             android:src="@drawable/ic_tab_bills" />
 
                         <TextView
                             style="@style/GlanceLabel"
-                            android:text="Still to pay" />
+                            android:text="Your regular bills" />
 
                         <TextView
-                            android:id="@+id/glance_due"
+                            android:id="@+id/setup_bills_value"
                             style="@style/GlanceValue" />
 
                         <ImageView style="@style/ChevronIcon" />
+                    </LinearLayout>
+
+                    <View
+                        style="@style/Divider"
+                        android:layout_marginStart="52dp" />
+
+                    <LinearLayout
+                        android:id="@+id/setup_balance_row"
+                        style="@style/GlanceRow">
+
+                        <ImageView
+                            android:id="@+id/setup_balance_icon"
+                            style="@style/RowIcon"
+                            android:src="@drawable/ic_tab_summary" />
+
+                        <TextView
+                            style="@style/GlanceLabel"
+                            android:text="Your bank balance" />
+
+                        <TextView
+                            android:id="@+id/setup_balance_value"
+                            style="@style/GlanceValue" />
+
+                        <ImageView style="@style/ChevronIcon" />
+                    </LinearLayout>
+
+                    <Button
+                        android:id="@+id/setup_next"
+                        style="@style/GreenButton"
+                        android:layout_width="match_parent"
+                        android:layout_marginTop="12dp" />
+
+                    <TextView
+                        android:id="@+id/setup_no_bills"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:background="?android:attr/selectableItemBackground"
+                        android:fontFamily="sans-serif-medium"
+                        android:gravity="center"
+                        android:minHeight="48dp"
+                        android:text="I have no regular bills"
+                        android:textColor="@color/chip_text"
+                        android:textSize="15sp" />
+                </LinearLayout>
+
+                <!-- Everything else on Summary (hidden during setup) -->
+                <LinearLayout
+                    android:id="@+id/summary_main"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <!-- Safe to spend. Tap for the full breakdown. -->
+                    <LinearLayout
+                        android:id="@+id/hero"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="12dp"
+                        android:background="@drawable/hero_green"
+                        android:foreground="?android:attr/selectableItemBackground"
+                        android:orientation="vertical"
+                        android:paddingHorizontal="16dp"
+                        android:paddingVertical="20dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="Safe to spend this week"
+                                android:textColor="#D9FFFFFF"
+                                android:textSize="15sp" />
+
+                            <ImageView
+                                android:layout_width="20dp"
+                                android:layout_height="20dp"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_info"
+                                android:tint="#CCFFFFFF" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/hero_amount"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:fontFeatureSettings="tnum"
+                            android:letterSpacing="-0.02"
+                            android:maxLines="1"
+                            android:textColor="@android:color/white"
+                            android:textSize="44sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/hero_note"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textColor="#E6FFFFFF"
+                            android:textSize="14sp" />
+
+                        <!-- The math behind the number; it adds up to the number above -->
+                        <TextView
+                            android:id="@+id/hero_breakdown"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:ellipsize="end"
+                            android:fontFeatureSettings="tnum"
+                            android:maxLines="2"
+                            android:textColor="#CCFFFFFF"
+                            android:textSize="13sp" />
+                    </LinearLayout>
+
+                    <!-- Bank balance: tap to change -->
+                    <LinearLayout
+                        android:id="@+id/balance_row"
+                        style="@style/Card"
+                        android:foreground="?android:attr/selectableItemBackground"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            style="@style/RowIcon"
+                            android:src="@drawable/ic_wallet" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Bank balance"
+                                android:textColor="@color/text"
+                                android:textSize="16sp" />
+
+                            <TextView
+                                android:id="@+id/balance_updated"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:textSize="13sp" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/balance_value"
+                            style="@style/Money"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:textColor="@color/text"
+                            android:textSize="16sp" />
+
+                        <ImageView
+                            android:layout_width="18dp"
+                            android:layout_height="18dp"
+                            android:layout_marginStart="8dp"
+                            android:importantForAccessibility="no"
+                            android:src="@drawable/ic_edit"
+                            android:tint="@color/hint" />
+                    </LinearLayout>
+
+                    <!-- At a glance -->
+                    <LinearLayout
+                        style="@style/Card"
+                        android:paddingVertical="4dp">
+
+                        <LinearLayout
+                            android:id="@+id/glance_payday_row"
+                            style="@style/GlanceRow">
+
+                            <ImageView
+                                style="@style/RowIcon"
+                                android:src="@drawable/ic_tab_paydays" />
+
+                            <TextView
+                                style="@style/GlanceLabel"
+                                android:text="Next payday" />
+
+                            <TextView
+                                android:id="@+id/glance_payday"
+                                style="@style/GlanceValue" />
+
+                            <ImageView style="@style/ChevronIcon" />
+                        </LinearLayout>
+
+                        <View
+                            style="@style/Divider"
+                            android:layout_marginStart="52dp" />
+
+                        <LinearLayout
+                            android:id="@+id/glance_bill_row"
+                            style="@style/GlanceRow">
+
+                            <ImageView
+                                style="@style/RowIcon"
+                                android:src="@drawable/ic_bell" />
+
+                            <TextView
+                                style="@style/GlanceLabel"
+                                android:text="Next bill" />
+
+                            <TextView
+                                android:id="@+id/glance_bill"
+                                style="@style/GlanceValue" />
+
+                            <ImageView style="@style/ChevronIcon" />
+                        </LinearLayout>
+
+                        <View
+                            style="@style/Divider"
+                            android:layout_marginStart="52dp" />
+
+                        <LinearLayout
+                            android:id="@+id/glance_due_row"
+                            style="@style/GlanceRow">
+
+                            <ImageView
+                                style="@style/RowIcon"
+                                android:src="@drawable/ic_tab_bills" />
+
+                            <TextView
+                                style="@style/GlanceLabel"
+                                android:text="Due before payday" />
+
+                            <TextView
+                                android:id="@+id/glance_due"
+                                style="@style/GlanceValue" />
+
+                            <ImageView style="@style/ChevronIcon" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- End of month and Extra savings -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="12dp"
+                        android:orientation="horizontal">
+
+                        <LinearLayout
+                            style="@style/Tile"
+                            android:layout_marginEnd="6dp"
+                            android:screenReaderFocusable="true">
+
+                            <TextView
+                                android:id="@+id/hero_end_label"
+                                style="@style/TileLabel" />
+
+                            <TextView
+                                android:id="@+id/hero_end"
+                                style="@style/TileValue" />
+
+                            <TextView
+                                style="@style/TileCaption"
+                                android:text="if you spend your weekly money" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            style="@style/Tile"
+                            android:layout_marginStart="6dp"
+                            android:screenReaderFocusable="true">
+
+                            <TextView
+                                style="@style/TileLabel"
+                                android:text="Extra savings" />
+
+                            <TextView
+                                android:id="@+id/hero_cushion"
+                                style="@style/TileValue" />
+
+                            <TextView
+                                style="@style/TileCaption"
+                                android:text="not needed for bills" />
+                        </LinearLayout>
                     </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
@@ -296,62 +451,154 @@
                 <TextView
                     style="@style/PageTitle"
                     android:layout_marginTop="24dp"
+                    android:accessibilityHeading="true"
                     android:text="Paydays" />
 
                 <TextView
                     android:id="@+id/paydays_subtitle"
                     style="@style/PageSubtitle" />
 
+                <!-- Your usual pay -->
                 <LinearLayout
-                    android:id="@+id/chart_card"
-                    style="@style/Card">
+                    android:id="@+id/pay_card"
+                    style="@style/Card"
+                    android:paddingVertical="4dp">
+
+                    <LinearLayout
+                        android:id="@+id/pay_row"
+                        style="@style/GlanceRow">
+
+                        <ImageView
+                            style="@style/RowIcon"
+                            android:src="@drawable/ic_wallet" />
+
+                        <TextView
+                            style="@style/GlanceLabel"
+                            android:text="Your pay" />
+
+                        <TextView
+                            android:id="@+id/pay_value"
+                            style="@style/GlanceValue" />
+
+                        <ImageView style="@style/ChevronIcon" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Shown until pay and bank balance are set -->
+                <LinearLayout
+                    android:id="@+id/paydays_empty"
+                    style="@style/Card"
+                    android:gravity="center_horizontal"
+                    android:paddingVertical="24dp"
+                    android:visibility="gone">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Balance after each payday's bills"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="13sp" />
+                        android:text="Your paydays will show here"
+                        android:textColor="@color/text"
+                        android:textSize="16sp" />
 
-                    <com.gh00ul.budget.BalanceChart
-                        android:id="@+id/chart"
-                        android:layout_width="match_parent"
-                        android:layout_height="160dp"
-                        android:layout_marginTop="6dp" />
+                    <TextView
+                        android:id="@+id/paydays_empty_body"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:gravity="center"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="14sp" />
+
+                    <Button
+                        android:id="@+id/paydays_empty_button"
+                        style="@style/GreenButton"
+                        android:layout_marginTop="14dp" />
                 </LinearLayout>
 
                 <LinearLayout
-                    style="@style/Card"
-                    android:paddingVertical="6dp">
+                    android:id="@+id/paydays_content"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
 
                     <LinearLayout
-                        android:id="@+id/forecast_list"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:divider="@drawable/divider"
-                        android:orientation="vertical"
-                        android:showDividers="middle" />
-
-                    <View style="@style/Divider" />
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingVertical="14dp">
+                        android:id="@+id/chart_card"
+                        style="@style/Card">
 
                         <TextView
-                            android:id="@+id/end_label"
-                            style="@style/Label"
-                            android:fontFamily="sans-serif-medium" />
-
-                        <TextView
-                            android:id="@+id/end_balance"
-                            style="@style/Money"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:textSize="20sp" />
+                            android:text="Bank balance after each payday's bills"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="13sp" />
+
+                        <com.gh00ul.budget.BalanceChart
+                            android:id="@+id/chart"
+                            android:layout_width="match_parent"
+                            android:layout_height="170dp"
+                            android:layout_marginTop="6dp" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        style="@style/Card"
+                        android:paddingTop="12dp"
+                        android:paddingBottom="6dp">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="end"
+                            android:text="Left in the bank after bills"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
+
+                        <LinearLayout
+                            android:id="@+id/forecast_list"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:divider="@drawable/divider_payday"
+                            android:orientation="vertical"
+                            android:showDividers="middle" />
+
+                        <View style="@style/Divider" />
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal"
+                            android:paddingVertical="14dp"
+                            android:screenReaderFocusable="true">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:id="@+id/end_label"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:fontFamily="sans-serif-medium"
+                                    android:textColor="@color/text"
+                                    android:textSize="16sp" />
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="after bills, before any other spending"
+                                    android:textColor="@color/text_secondary"
+                                    android:textSize="12sp" />
+                            </LinearLayout>
+
+                            <TextView
+                                android:id="@+id/end_balance"
+                                style="@style/Money"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="8dp"
+                                android:textSize="20sp" />
+                        </LinearLayout>
                     </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
@@ -375,13 +622,14 @@
                 <TextView
                     style="@style/PageTitle"
                     android:layout_marginTop="24dp"
+                    android:accessibilityHeading="true"
                     android:text="Bills" />
 
                 <TextView
                     android:id="@+id/bills_subtitle"
                     style="@style/PageSubtitle" />
 
-                <!-- Rows run edge to edge so the red "delete" layer fills the card when swiping -->
+                <!-- Rows run edge to edge so the swipe layers fill the card -->
                 <LinearLayout
                     android:id="@+id/bills_card"
                     style="@style/Card"
@@ -392,7 +640,9 @@
                         android:id="@+id/bill_list"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="vertical" />
+                        android:divider="@drawable/divider_bill"
+                        android:orientation="vertical"
+                        android:showDividers="middle" />
 
                     <LinearLayout
                         android:id="@+id/bills_empty"
@@ -400,6 +650,7 @@
                         android:layout_height="wrap_content"
                         android:gravity="center_horizontal"
                         android:orientation="vertical"
+                        android:paddingHorizontal="24dp"
                         android:paddingVertical="28dp">
 
                         <ImageView
@@ -413,15 +664,37 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="10dp"
-                            android:text="No bills yet"
+                            android:text="Add your regular bills"
                             android:textColor="@color/text"
                             android:textSize="16sp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:gravity="center"
+                            android:text="Rent, phone, insurance, subscriptions. Safe to spend keeps money aside so each one is paid on time."
+                            android:textColor="@color/text_secondary"
+                            android:textSize="14sp" />
 
                         <Button
                             android:id="@+id/add_first_bill"
                             style="@style/GreenButton"
                             android:layout_marginTop="14dp"
                             android:text="Add a bill" />
+
+                        <TextView
+                            android:id="@+id/bills_none_link"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:background="?android:attr/selectableItemBackground"
+                            android:fontFamily="sans-serif-medium"
+                            android:gravity="center"
+                            android:minHeight="48dp"
+                            android:paddingHorizontal="12dp"
+                            android:text="I have no regular bills"
+                            android:textColor="@color/chip_text"
+                            android:textSize="15sp" />
                     </LinearLayout>
                 </LinearLayout>
 
@@ -430,152 +703,21 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:gravity="center"
-                    android:text="Tap a bill to edit · swipe left to delete"
+                    android:text="Tap to edit · swipe right when paid · swipe left to delete"
                     android:textColor="@color/text_secondary"
                     android:textSize="12sp" />
             </LinearLayout>
         </ScrollView>
 
-        <!-- ========== Settings ========== -->
-        <ScrollView
-            android:id="@+id/page_settings"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:visibility="gone">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    style="@style/PageTitle"
-                    android:layout_marginTop="24dp"
-                    android:text="Settings" />
-
-                <TextView
-                    style="@style/SectionLabel"
-                    android:text="Income" />
-
-                <LinearLayout
-                    style="@style/Card"
-                    android:paddingVertical="4dp">
-
-                    <LinearLayout
-                        android:id="@+id/income_row"
-                        style="@style/GlanceRow">
-
-                        <ImageView
-                            style="@style/RowIcon"
-                            android:src="@drawable/ic_wallet" />
-
-                        <TextView
-                            style="@style/GlanceLabel"
-                            android:text="Weekly income" />
-
-                        <TextView
-                            android:id="@+id/income_value"
-                            style="@style/GlanceValue" />
-
-                        <ImageView style="@style/ChevronIcon" />
-                    </LinearLayout>
-
-                    <View
-                        style="@style/Divider"
-                        android:layout_marginStart="52dp" />
-
-                    <LinearLayout
-                        android:id="@+id/payday_row"
-                        style="@style/GlanceRow">
-
-                        <ImageView
-                            style="@style/RowIcon"
-                            android:src="@drawable/ic_tab_paydays" />
-
-                        <TextView
-                            style="@style/GlanceLabel"
-                            android:text="Payday" />
-
-                        <TextView
-                            android:id="@+id/payday_value"
-                            style="@style/GlanceValue" />
-
-                        <ImageView style="@style/ChevronIcon" />
-                    </LinearLayout>
-                </LinearLayout>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:layout_marginEnd="8dp"
-                    android:layout_marginBottom="20dp"
-                    android:text="You get paid this amount every week on this day. To change one paycheck, tap it on the Paydays tab (or tap Safe to spend for this week's)."
-                    android:textColor="@color/text_secondary"
-                    android:textSize="13sp" />
-
-                <TextView
-                    style="@style/SectionLabel"
-                    android:text="App" />
-
-                <LinearLayout
-                    style="@style/Card"
-                    android:paddingVertical="4dp">
-
-                    <LinearLayout
-                        android:id="@+id/check_row"
-                        style="@style/GlanceRow">
-
-                        <ImageView
-                            style="@style/RowIcon"
-                            android:src="@drawable/ic_update" />
-
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="Check for updates"
-                                android:textColor="@color/text"
-                                android:textSize="16sp" />
-
-                            <TextView
-                                android:id="@+id/update_status"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:textColor="@color/text_secondary"
-                                android:textSize="13sp" />
-                        </LinearLayout>
-
-                        <ImageView style="@style/ChevronIcon" />
-                    </LinearLayout>
-                </LinearLayout>
-
-                <TextView
-                    android:id="@+id/version_footer"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="24dp"
-                    android:gravity="center"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="12sp" />
-            </LinearLayout>
-        </ScrollView>
-
-        <!-- Undo bar after deleting a bill (left of the + button) -->
+        <!-- Message bar with Undo (left of the + button on the Bills tab) -->
         <LinearLayout
             android:id="@+id/undo_bar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
             android:layout_marginStart="16dp"
-            android:layout_marginEnd="88dp"
-            android:layout_marginBottom="20dp"
+            android:layout_marginEnd="84dp"
+            android:layout_marginBottom="18dp"
             android:background="@drawable/snackbar"
             android:elevation="6dp"
             android:gravity="center_vertical"
@@ -590,8 +732,9 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:ellipsize="end"
-                android:singleLine="true"
+                android:accessibilityLiveRegion="polite"
+                android:maxLines="2"
+                android:paddingVertical="8dp"
                 android:textColor="@android:color/white"
                 android:textSize="15sp" />
 
@@ -610,13 +753,13 @@
                 android:textSize="15sp" />
         </LinearLayout>
 
-        <!-- Add bill (Bills tab only) -->
+        <!-- Add bill (Bills tab, once there's at least one bill) -->
         <ImageButton
             android:id="@+id/fab"
             android:layout_width="56dp"
             android:layout_height="56dp"
             android:layout_gravity="bottom|end"
-            android:layout_margin="18dp"
+            android:layout_margin="16dp"
             android:background="@drawable/fab"
             android:contentDescription="Add bill"
             android:elevation="6dp"

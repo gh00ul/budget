@@ -17,19 +17,20 @@ import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.text.InputFilter
+import android.text.Editable
 import android.text.InputType
 import android.text.SpannableString
-import android.text.SpannableStringBuilder
 import android.text.Spanned
-import android.text.style.ForegroundColorSpan
+import android.text.TextWatcher
 import android.text.style.RelativeSizeSpan
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -39,8 +40,11 @@ import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
+import android.view.accessibility.AccessibilityManager
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.animation.DecelerateInterpolator
+import android.view.animation.PathInterpolator
+import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -72,6 +76,10 @@ import kotlin.math.roundToLong
 
 private const val REPO = "gh00ul/budget"
 
+// Home-screen shortcuts (res/xml/shortcuts.xml).
+private const val ACTION_UPDATE_BALANCE = "com.gh00ul.budget.UPDATE_BALANCE"
+private const val ACTION_ADD_BILL = "com.gh00ul.budget.ADD_BILL"
+
 // Soft background + matching letter color for the round initial next to each bill.
 private val AVATAR_COLORS = listOf(
     R.color.avatar_bg_1 to R.color.avatar_fg_1, R.color.avatar_bg_2 to R.color.avatar_fg_2,
@@ -94,11 +102,18 @@ class MainActivity : Activity() {
     }
 
     // date = the first (or any) date the bill is due; it repeats from there on.
-    private class Bill(val name: String, val amount: Double, val freq: Freq, val date: LocalDate) {
+    // paid = due dates marked paid (early, or already taken by autopay) → the day they were marked.
+    private class Bill(
+        val name: String,
+        val amount: Double,
+        val freq: Freq,
+        val date: LocalDate,
+        val paid: Map<LocalDate, LocalDate> = emptyMap(),
+    ) {
         // This bill's share of one week, e.g. $1,200 monthly rent ≈ $275.97 a week.
         val perWeek: Double get() = amount * 7 / freq.cycleDays
 
-        // Every due date in [from, until).
+        // Every scheduled due date in [from, until), paid or not.
         fun dueDates(from: LocalDate, until: LocalDate): List<LocalDate> {
             val start = if (from.isAfter(date)) from else date
             val dates = mutableListOf<LocalDate>()
@@ -123,27 +138,55 @@ class MainActivity : Activity() {
             return dates
         }
 
-        // Next due date on or after today. A start date still ahead (even years ahead) is the next one.
-        fun nextDue(today: LocalDate): LocalDate =
-            if (!date.isBefore(today)) date
-            else dueDates(today, today.plusYears(1).plusDays(1)).firstOrNull() ?: date
+        // Due dates in [from, until) that haven't been marked paid.
+        fun unpaid(from: LocalDate, until: LocalDate) = dueDates(from, until).filter { it !in paid }
+
+        // How many times it was marked paid on a day after `after`, up to and including `through`.
+        fun paidBetween(after: LocalDate, through: LocalDate) = paid.values.count { it.isAfter(after) && !it.isAfter(through) }
+
+        // Next unpaid due date on or after today (even years ahead).
+        fun nextDue(today: LocalDate): LocalDate {
+            var from = today
+            repeat(5) {
+                val until = from.plusYears(2)
+                dueDates(from, until).firstOrNull { it !in paid }?.let { return it }
+                from = until
+            }
+            return date
+        }
+
+        // The day it was last marked paid, if that was in the past week.
+        fun recentlyPaid(today: LocalDate) =
+            paid.values.filter { !it.isBefore(today.minusDays(6)) && !it.isAfter(today) }.maxOrNull()
+
+        fun withPaid(due: LocalDate, on: LocalDate) = Bill(name, amount, freq, date, paid + (due to on))
     }
 
     // Everything behind "Safe to spend" for the current pay week.
     private class Week(
         val payday: LocalDate, // the payday that started this pay period
         val nextPayday: LocalDate,
+        val daysLeft: Long, // days until the next payday
         val pay: Double,
         val billsShare: Double, // one week's share of all bills
+        val afterBills: Double, // pay - billsShare
         val daysTracked: Long, // 7, or fewer if spending tracking only started mid-week
+        val weekMoney: Double, // afterBills for the tracked days
+        val trackedFrom: LocalDate?, // the day "spent" counts from
+        val startBalance: Double?, // the balance on that day
         val spent: Double?, // null = no balance entered since payday, so spending is unknown
-        val spendingMoney: Double, // (pay - share) for the tracked part of the week, minus spent
+        val spendingMoney: Double, // weekMoney - spent
         val bank: Double, // the last balance entered, moved forward to today
         val bankIsEstimate: Boolean,
-        val setAside: Double, // has to stay in the bank so every bill gets paid on time
-        val tightest: Pair<Bill, LocalDate>?, // the bill that sets that amount
-        val free: Double, // bank - setAside
+        val setAside: Double, // "bill buffer": has to stay in the bank so every bill gets paid on time
+        val tightest: Pair<Bill, LocalDate>?, // the bill where that buffer is tightest
+        val free: Double, // "spare money": bank - setAside
         val safe: Double, // the smaller of spendingMoney and free
+    )
+
+    private class BalanceState(
+        val balance: Double, val updated: LocalDate?,
+        val weekStart: LocalDate?, val startBalance: Double, val startTaken: LocalDate?,
     )
 
     private class Tab(val label: String, val icon: Int, val page: Int)
@@ -152,7 +195,6 @@ class MainActivity : Activity() {
         Tab("Summary", R.drawable.ic_tab_summary, R.id.page_summary),
         Tab("Paydays", R.drawable.ic_tab_paydays, R.id.page_paydays),
         Tab("Bills", R.drawable.ic_tab_bills, R.id.page_bills),
-        Tab("Settings", R.drawable.ic_tab_settings, R.id.page_settings),
     )
     private val navItems = mutableListOf<View>()
     private var currentTab = 0
@@ -162,11 +204,13 @@ class MainActivity : Activity() {
     private val decimalSeparator = (money as? DecimalFormat)?.decimalFormatSymbols?.monetaryDecimalSeparator ?: '.'
     private val dayFormat = DateTimeFormatter.ofPattern("EEE, MMM d")
     private val shortDate = DateTimeFormatter.ofPattern("MMM d")
+    private val weekday = DateTimeFormatter.ofPattern("EEE")
     private val bills = mutableListOf<Bill>()
     private var balance = 0.0
     private var balanceUpdated: LocalDate? = null
     private var weeklyIncome = 0.0
     private var payday = DayOfWeek.FRIDAY
+    private var billsNone = false // said "I have no regular bills" during setup
     // One-off paycheck amounts (overtime, short week) that replace the weekly income on that date.
     private val paycheckChanges = mutableMapOf<LocalDate, Double>()
     // Where "spent since payday" counts from: a balance (usually the last one, carried forward to payday)
@@ -178,16 +222,21 @@ class MainActivity : Activity() {
     private var updateUrl: String? = null
     private var latestVersion: String? = null
     private var downloading = false
+    private var updateStatusText = "checking…"
 
     private val handler = Handler(Looper.getMainLooper())
-    private val pendingUndo = mutableListOf<Pair<Int, Bill>>() // (index it was at, bill)
-    private val hideUndo = Runnable {
-        pendingUndo.clear()
-        undoBar.animate().alpha(0f).setDuration(150).withEndAction { undoBar.visibility = View.GONE }.start()
+    private val pendingDeletes = mutableListOf<Pair<Int, Bill>>() // (index it was at, bill)
+    private var snackUndo: (() -> Unit)? = null
+    private val hideSnack = Runnable {
+        pendingDeletes.clear()
+        snackUndo = null
+        undoBar.animate().alpha(0f).translationY(dp(16).toFloat()).setDuration(150)
+            .withEndAction { undoBar.visibility = View.GONE }.start()
     }
     private var heroShown: Double? = null
     private var heroAnimator: ValueAnimator? = null
     private var sheetDialog: Dialog? = null
+    private var fabShown = false
 
     // Theme colors (they change in dark mode).
     private val positive by lazy { getColor(R.color.positive) }
@@ -196,74 +245,50 @@ class MainActivity : Activity() {
     private val secondary by lazy { getColor(R.color.text_secondary) }
     private val textColor by lazy { getColor(R.color.text) }
     private val accent by lazy { getColor(R.color.chip_text) }
+    private val a11y by lazy { getSystemService(AccessibilityManager::class.java) }
 
-    private lateinit var billList: LinearLayout
-    private lateinit var billsEmpty: View
-    private lateinit var billsHint: View
-    private lateinit var billsSubtitle: TextView
-    private lateinit var forecastList: LinearLayout
-    private lateinit var chartCard: View
-    private lateinit var chart: BalanceChart
-    private lateinit var paydaysSubtitle: TextView
-    private lateinit var endLabel: TextView
-    private lateinit var endBalance: TextView
-    private lateinit var hero: View
-    private lateinit var heroAmount: TextView
-    private lateinit var heroNote: TextView
-    private lateinit var heroBreakdown: TextView
-    private lateinit var heroEndLabel: TextView
-    private lateinit var heroEnd: TextView
-    private lateinit var heroCushion: TextView
-    private lateinit var balanceValue: TextView
-    private lateinit var balanceUpdatedView: TextView
-    private lateinit var glancePayday: TextView
-    private lateinit var glanceBill: TextView
-    private lateinit var glanceDue: TextView
-    private lateinit var incomeValue: TextView
-    private lateinit var paydayValue: TextView
-    private lateinit var updateBanner: View
-    private lateinit var updateText: TextView
-    private lateinit var updateStatus: TextView
-    private lateinit var updateButton: Button
-    private lateinit var fab: View
-    private lateinit var undoBar: View
-    private lateinit var undoText: TextView
+    private fun <T : View> view(id: Int) = lazy { findViewById<T>(id) }
+    private val billList by view<LinearLayout>(R.id.bill_list)
+    private val billsEmpty by view<View>(R.id.bills_empty)
+    private val billsHint by view<View>(R.id.bills_hint)
+    private val billsSubtitle by view<TextView>(R.id.bills_subtitle)
+    private val billsNoneLink by view<View>(R.id.bills_none_link)
+    private val forecastList by view<LinearLayout>(R.id.forecast_list)
+    private val chartCard by view<View>(R.id.chart_card)
+    private val chart by view<BalanceChart>(R.id.chart)
+    private val paydaysSubtitle by view<TextView>(R.id.paydays_subtitle)
+    private val paydaysEmpty by view<View>(R.id.paydays_empty)
+    private val paydaysEmptyBody by view<TextView>(R.id.paydays_empty_body)
+    private val paydaysEmptyButton by view<Button>(R.id.paydays_empty_button)
+    private val paydaysContent by view<View>(R.id.paydays_content)
+    private val payValue by view<TextView>(R.id.pay_value)
+    private val endLabel by view<TextView>(R.id.end_label)
+    private val endBalance by view<TextView>(R.id.end_balance)
+    private val setupCard by view<View>(R.id.setup_card)
+    private val summaryMain by view<View>(R.id.summary_main)
+    private val hero by view<View>(R.id.hero)
+    private val heroAmount by view<TextView>(R.id.hero_amount)
+    private val heroNote by view<TextView>(R.id.hero_note)
+    private val heroBreakdown by view<TextView>(R.id.hero_breakdown)
+    private val heroEndLabel by view<TextView>(R.id.hero_end_label)
+    private val heroEnd by view<TextView>(R.id.hero_end)
+    private val heroCushion by view<TextView>(R.id.hero_cushion)
+    private val balanceValue by view<TextView>(R.id.balance_value)
+    private val balanceUpdatedView by view<TextView>(R.id.balance_updated)
+    private val glancePayday by view<TextView>(R.id.glance_payday)
+    private val glanceBill by view<TextView>(R.id.glance_bill)
+    private val glanceDue by view<TextView>(R.id.glance_due)
+    private val updateBanner by view<View>(R.id.update_banner)
+    private val updateText by view<TextView>(R.id.update_text)
+    private val updateButton by view<Button>(R.id.update_button)
+    private val fab by view<View>(R.id.fab)
+    private val undoBar by view<View>(R.id.undo_bar)
+    private val undoText by view<TextView>(R.id.undo_text)
+    private val undoButton by view<View>(R.id.undo_button)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-
-        billList = findViewById(R.id.bill_list)
-        billsEmpty = findViewById(R.id.bills_empty)
-        billsHint = findViewById(R.id.bills_hint)
-        billsSubtitle = findViewById(R.id.bills_subtitle)
-        forecastList = findViewById(R.id.forecast_list)
-        chartCard = findViewById(R.id.chart_card)
-        chart = findViewById(R.id.chart)
-        paydaysSubtitle = findViewById(R.id.paydays_subtitle)
-        endLabel = findViewById(R.id.end_label)
-        endBalance = findViewById(R.id.end_balance)
-        hero = findViewById(R.id.hero)
-        heroAmount = findViewById(R.id.hero_amount)
-        heroNote = findViewById(R.id.hero_note)
-        heroBreakdown = findViewById(R.id.hero_breakdown)
-        heroEndLabel = findViewById(R.id.hero_end_label)
-        heroEnd = findViewById(R.id.hero_end)
-        heroCushion = findViewById(R.id.hero_cushion)
-        balanceValue = findViewById(R.id.balance_value)
-        balanceUpdatedView = findViewById(R.id.balance_updated)
-        glancePayday = findViewById(R.id.glance_payday)
-        glanceBill = findViewById(R.id.glance_bill)
-        glanceDue = findViewById(R.id.glance_due)
-        incomeValue = findViewById(R.id.income_value)
-        paydayValue = findViewById(R.id.payday_value)
-        updateBanner = findViewById(R.id.update_banner)
-        updateText = findViewById(R.id.update_text)
-        updateStatus = findViewById(R.id.update_status)
-        updateButton = findViewById(R.id.update_button)
-        fab = findViewById(R.id.fab)
-        undoBar = findViewById(R.id.undo_bar)
-        undoText = findViewById(R.id.undo_text)
 
         fitToSystemBars()
         setUpTabs()
@@ -275,34 +300,48 @@ class MainActivity : Activity() {
 
         findViewById<TextView>(R.id.today_label).text =
             LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, MMMM d"))
-        findViewById<TextView>(R.id.version_footer).text = "Budget ${BuildConfig.VERSION_NAME}"
         findViewById<View>(R.id.bills_card).clipToOutline = true // keeps swiped rows inside the rounded card
 
         hero.setOnClickListener { explainSafeToSpend() }
         findViewById<View>(R.id.balance_row).setOnClickListener { editBalance() }
         findViewById<View>(R.id.glance_payday_row).setOnClickListener { showTab(1) }
-        findViewById<View>(R.id.glance_bill_row).setOnClickListener { showTab(2) }
-        findViewById<View>(R.id.glance_due_row).setOnClickListener { showTab(2) }
-        findViewById<View>(R.id.income_row).setOnClickListener { editIncome() }
-        findViewById<View>(R.id.payday_row).setOnClickListener { pickPayday() }
-        findViewById<View>(R.id.check_row).setOnClickListener { checkForUpdate() }
+        findViewById<View>(R.id.glance_bill_row).setOnClickListener {
+            val today = LocalDate.now()
+            bills.minByOrNull { it.nextDue(today) }?.let { openBillSheet(it) } ?: showTab(2)
+        }
+        findViewById<View>(R.id.glance_due_row).setOnClickListener { showTab(1) }
+        findViewById<View>(R.id.settings_button).setOnClickListener { showSettings() }
+        findViewById<View>(R.id.pay_row).setOnClickListener { editPay() }
         findViewById<View>(R.id.add_first_bill).setOnClickListener { openBillSheet(null) }
+        billsNoneLink.setOnClickListener { setNoBills() }
+        findViewById<View>(R.id.setup_pay_row).setOnClickListener { editPay() }
+        findViewById<View>(R.id.setup_bills_row).setOnClickListener { openBillSheet(null) }
+        findViewById<View>(R.id.setup_balance_row).setOnClickListener { editBalance() }
+        findViewById<View>(R.id.setup_no_bills).setOnClickListener { setNoBills() }
         fab.setOnClickListener { openBillSheet(null) }
         updateButton.setOnClickListener { installUpdate() }
-        findViewById<View>(R.id.undo_button).setOnClickListener { undoDeletes() }
+        undoButton.setOnClickListener { undo() }
 
         // Coming back from a dark-mode / font-size change: same tab, and an Undo that was showing.
-        savedInstanceState?.let { state ->
-            showTab(state.getInt("tab", 0), animate = false)
+        if (savedInstanceState != null) {
+            showTab(savedInstanceState.getInt("tab", 0), animate = false)
             runCatching {
-                val saved = JSONArray(state.getString("undo") ?: "[]")
+                val saved = JSONArray(savedInstanceState.getString("undo") ?: "[]")
                 for (i in 0 until saved.length()) {
                     val entry = saved.getJSONObject(i)
-                    billFromJson(entry.getJSONObject("bill"))?.let { pendingUndo += entry.getInt("index") to it }
+                    billFromJson(entry.getJSONObject("bill"))?.let { pendingDeletes += entry.getInt("index") to it }
                 }
-                if (pendingUndo.isNotEmpty()) showUndoBar()
+                if (pendingDeletes.isNotEmpty()) showSnackBar(deletedText(), canUndo = true)
             }
+        } else {
+            handleShortcut(intent)
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleShortcut(intent)
     }
 
     // Redraw on every return to the app so "due in X days" and the paydays stay current.
@@ -320,7 +359,7 @@ class MainActivity : Activity() {
         super.onSaveInstanceState(outState)
         outState.putInt("tab", currentTab)
         val undo = JSONArray()
-        for ((index, bill) in pendingUndo) undo.put(JSONObject().put("index", index).put("bill", billToJson(bill)))
+        for ((index, bill) in pendingDeletes) undo.put(JSONObject().put("index", index).put("bill", billToJson(bill)))
         outState.putString("undo", undo.toString())
     }
 
@@ -338,16 +377,45 @@ class MainActivity : Activity() {
         if (currentTab != 0) showTab(0) else super.onBackPressed()
     }
 
+    private fun handleShortcut(intent: Intent?) {
+        when (intent?.action) {
+            ACTION_UPDATE_BALANCE -> {
+                showTab(0, animate = false)
+                hero.post { editBalance() }
+            }
+            ACTION_ADD_BILL -> {
+                showTab(2, animate = false)
+                hero.post { openBillSheet(null) }
+            }
+        }
+    }
+
     // ---------- Tabs and window ----------
 
     private fun setUpTabs() {
         val nav = findViewById<LinearLayout>(R.id.nav)
+        nav.accessibilityDelegate = object : View.AccessibilityDelegate() {
+            override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
+                super.onInitializeAccessibilityNodeInfo(host, info)
+                info.collectionInfo = AccessibilityNodeInfo.CollectionInfo.obtain(1, tabs.size, false)
+            }
+        }
         tabs.forEachIndexed { i, tab ->
             val item = layoutInflater.inflate(R.layout.nav_item, nav, false)
             item.findViewById<ImageView>(R.id.nav_icon).setImageResource(tab.icon)
             item.findViewById<TextView>(R.id.nav_label).text = tab.label
             item.contentDescription = tab.label
             item.setOnClickListener { showTab(i) }
+            // Screen readers announce "Tab, 2 of 3".
+            item.accessibilityDelegate = object : View.AccessibilityDelegate() {
+                @Suppress("DEPRECATION")
+                override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
+                    super.onInitializeAccessibilityNodeInfo(host, info)
+                    info.extras.putCharSequence("AccessibilityNodeInfo.roleDescription", "Tab")
+                    info.collectionItemInfo = AccessibilityNodeInfo.CollectionItemInfo.obtain(0, 1, i, 1, false, host.isSelected)
+                }
+            }
+            if (Build.VERSION.SDK_INT >= 28) findViewById<View>(tab.page).accessibilityPaneTitle = tab.label
             nav.addView(item)
             navItems.add(item)
         }
@@ -363,18 +431,47 @@ class MainActivity : Activity() {
             page.visibility = if (selected) View.VISIBLE else View.GONE
             if (selected && animate && changed) {
                 page.alpha = 0f
-                page.translationY = 12 * resources.displayMetrics.density
+                page.translationY = dp(12).toFloat()
                 page.animate().alpha(1f).translationY(0f).setDuration(180).setInterpolator(DecelerateInterpolator()).start()
             }
             val item = navItems[i]
             item.isSelected = selected
-            item.findViewById<View>(R.id.nav_pill).setBackgroundResource(if (selected) R.drawable.nav_pill else 0)
+            val pill = item.findViewById<View>(R.id.nav_pill)
+            pill.setBackgroundResource(if (selected) R.drawable.nav_pill else 0)
+            if (selected && animate && changed) {
+                pill.scaleX = 0.6f
+                pill.alpha = 0f
+                pill.animate().scaleX(1f).alpha(1f).setDuration(200).setInterpolator(PathInterpolator(0.2f, 0f, 0f, 1f)).start()
+            }
             item.findViewById<ImageView>(R.id.nav_icon).imageTintList =
                 ColorStateList.valueOf(if (selected) accent else secondary)
             item.findViewById<TextView>(R.id.nav_label).setTextColor(if (selected) textColor else secondary)
         }
-        fab.visibility = if (currentTab == 2) View.VISIBLE else View.GONE
+        updateFab(animate)
         hideKeyboard()
+    }
+
+    // The + button lives on the Bills tab once there's a bill (the empty list has its own button).
+    private fun updateFab(animate: Boolean) {
+        val show = currentTab == 2 && bills.isNotEmpty()
+        if (show == fabShown) return
+        fabShown = show
+        fab.animate().cancel()
+        if (show) {
+            fab.visibility = View.VISIBLE
+            if (animate) {
+                fab.scaleX = 0.6f
+                fab.scaleY = 0.6f
+                fab.alpha = 0f
+            }
+            fab.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(if (animate) 180 else 0).start()
+        } else if (animate) {
+            fab.animate().scaleX(0.6f).scaleY(0.6f).alpha(0f).setDuration(120)
+                .withEndAction { if (!fabShown) fab.visibility = View.GONE }.start()
+        } else {
+            fab.visibility = View.GONE
+        }
+        positionSnackBar()
     }
 
     private fun hideKeyboard() {
@@ -421,26 +518,34 @@ class MainActivity : Activity() {
         return if (through.isBefore(first)) 0 else ChronoUnit.DAYS.between(first, through) / 7 + 1
     }
 
-    // A balance entered on `from`, moved forward to `to`: plus paychecks that landed after `from` (up to and
-    // including `to`), minus bills that came due from `from` up to (not including) `to`.
+    // Unpaid bills due in [from, until).
+    private fun billsDueIn(from: LocalDate, until: LocalDate) = cents(bills.sumOf { it.amount * it.unpaid(from, until).size })
+
+    // Money that left the bank for bills between a balance on `from` and one on `to`: scheduled bills due in
+    // [from, to) that weren't marked paid, plus bills marked paid on a day in (from, to].
+    private fun billsOut(from: LocalDate, to: LocalDate) =
+        bills.sumOf { it.amount * (it.unpaid(from, to).size + it.paidBetween(from, to)) }
+
+    // A balance entered on `from`, moved forward to `to`: plus paychecks after `from` (up to and including
+    // `to`), minus bills that went out in between.
     private fun project(amount: Double, from: LocalDate, to: LocalDate): Double {
         if (!from.isBefore(to)) return amount
         val pays = generateSequence(from.with(TemporalAdjusters.next(payday))) { it.plusWeeks(1) }
             .takeWhile { !it.isAfter(to) }
             .sumOf { paycheckOn(it) }
-        return amount + pays - bills.sumOf { it.amount * it.dueDates(from, to).size }
+        return amount + pays - billsOut(from, to)
     }
 
     private fun currentBalance(today: LocalDate) = balanceUpdated?.let { project(balance, it, today) } ?: balance
 
-    // How much has to stay in the bank today so every bill over the next year gets paid on time, given that
-    // each future paycheck puts one week's share of the bills toward them. Also returns the bill where that
-    // is tightest.
+    // How much has to stay in the bank today so every unpaid bill over the next year gets paid on time, given
+    // that each future paycheck puts one week's share of the bills toward them. Also returns the bill where
+    // that is tightest.
     private fun setAside(today: LocalDate, share: Double): Pair<Double, Pair<Bill, LocalDate>?> {
         var total = 0.0
         var worst = 0.0
         var tightest: Pair<Bill, LocalDate>? = null
-        bills.flatMap { bill -> bill.dueDates(today, today.plusDays(372)).map { it to bill } }
+        bills.flatMap { bill -> bill.unpaid(today, today.plusDays(372)).map { it to bill } }
             .sortedBy { it.first }
             .forEach { (date, bill) ->
                 total += bill.amount
@@ -455,7 +560,7 @@ class MainActivity : Activity() {
 
     // Safe to spend = the smaller of
     //   spending money: this week's pay − the bills' weekly share − what's been spent since payday, and
-    //   free money: what's in the bank − what has to stay set aside for upcoming bills.
+    //   spare money: what's in the bank − the bill buffer that has to stay for upcoming bills.
     private fun computeWeek(today: LocalDate): Week {
         val period = lastPayday(today)
         val next = today.with(TemporalAdjusters.next(payday))
@@ -464,54 +569,103 @@ class MainActivity : Activity() {
         val start = weekStartTaken
         val tracking = weekStart == period && start != null
         // Tracking that only started mid-week (no earlier balance to carry forward) covers the rest of the week.
-        val daysTracked = if (tracking && start!!.isAfter(period)) ChronoUnit.DAYS.between(start, next) else 7L
+        val daysTracked =
+            if (tracking && start!!.isAfter(period)) ChronoUnit.DAYS.between(start, next).coerceIn(1, 7) else 7L
         val spent = if (tracking) {
-            val upTo = balanceUpdated ?: today
-            val billsPaid = bills.sumOf { it.amount * it.dueDates(start!!, upTo).size }
-            cents(maxOf(0.0, weekStartBalance - balance - billsPaid))
+            cents(maxOf(0.0, weekStartBalance - balance - billsOut(start!!, balanceUpdated ?: today)))
         } else {
             null
         }
-        val spendingMoney = cents((pay - share) * daysTracked / 7 - (spent ?: 0.0))
+        val afterBills = cents(pay - share)
+        val weekMoney = cents(afterBills * daysTracked / 7)
+        val spendingMoney = cents(weekMoney - (spent ?: 0.0))
         val bank = cents(currentBalance(today))
         val (aside, tightest) = setAside(today, share)
         val free = cents(bank - aside)
         return Week(
-            payday = period, nextPayday = next, pay = pay, billsShare = share, daysTracked = daysTracked,
+            payday = period, nextPayday = next, daysLeft = ChronoUnit.DAYS.between(today, next),
+            pay = pay, billsShare = share, afterBills = afterBills, daysTracked = daysTracked, weekMoney = weekMoney,
+            trackedFrom = if (tracking) start else null, startBalance = if (tracking) weekStartBalance else null,
             spent = spent, spendingMoney = spendingMoney, bank = bank,
             bankIsEstimate = balanceUpdated?.isBefore(today) == true && abs(bank - balance) > 0.004,
             setAside = aside, tightest = tightest, free = free, safe = cents(minOf(spendingMoney, free)),
         )
     }
 
+    private fun isSetUp() = weeklyIncome > 0 && balanceUpdated != null
+
     // ---------- Drawing the screens ----------
 
     // Never let a bad number or date take the whole app down; show what happened instead.
     private fun refresh() {
         try {
+            showSetup()
             showBills()
             recalculate()
-            showSettings()
         } catch (e: Exception) {
-            Toast.makeText(this, "Something went wrong showing your budget: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Something went wrong showing your budget. Try updating the app.", Toast.LENGTH_LONG).show()
         }
     }
 
-    private fun showSettings() {
-        incomeValue.text = money.format(weeklyIncome)
-        paydayValue.text = payday.getDisplayName(TextStyle.FULL, Locale.getDefault())
-        balanceValue.text = money.format(balance)
-        val today = LocalDate.now()
-        val days = balanceUpdated?.let { ChronoUnit.DAYS.between(it, today) }
-        val trackingThisWeek = weekStart == lastPayday(today)
-        balanceUpdatedView.text = when {
-            days == null -> "Tap to update"
-            !trackingThisWeek -> "Update to count this week's spending"
-            days == 0L -> "Updated today"
-            days == 1L -> "Updated yesterday"
-            else -> "Updated $days days ago"
+    // First run: a three-step card until pay and bank balance are set.
+    private fun showSetup() {
+        val setUp = isSetUp()
+        val payDone = weeklyIncome > 0
+        val billsDone = bills.isNotEmpty() || billsNone
+        val balanceDone = balanceUpdated != null
+        setupCard.visibility = if (setUp) View.GONE else View.VISIBLE
+        summaryMain.visibility = if (setUp) View.VISIBLE else View.GONE
+        paydaysEmpty.visibility = if (setUp) View.GONE else View.VISIBLE
+        paydaysContent.visibility = if (setUp) View.VISIBLE else View.GONE
+        billsNoneLink.visibility = if (!setUp && !billsDone) View.VISIBLE else View.GONE
+
+        val dayName = payday.getDisplayName(TextStyle.FULL, Locale.getDefault())
+        payValue.text = if (payDone) "${shortMoney(weeklyIncome)} every $dayName" else "Not set"
+        payValue.setTextColor(if (payDone) textColor else warning)
+        if (setUp) return
+
+        fun step(icon: Int, value: Int, done: Boolean, normalIcon: Int, text: String) {
+            findViewById<ImageView>(icon).setImageResource(if (done) R.drawable.ic_check else normalIcon)
+            findViewById<TextView>(value).apply {
+                this.text = text
+                setTextColor(if (done) textColor else secondary)
+            }
         }
-        balanceUpdatedView.setTextColor(if (days == null || !trackingThisWeek || days >= 3) warning else secondary)
+        step(R.id.setup_pay_icon, R.id.setup_pay_value, payDone, R.drawable.ic_wallet,
+            if (payDone) "${shortMoney(weeklyIncome)} every $dayName" else "Not set")
+        step(R.id.setup_bills_icon, R.id.setup_bills_value, billsDone, R.drawable.ic_tab_bills, when {
+            bills.isNotEmpty() -> "${bills.size} bill${if (bills.size == 1) "" else "s"}"
+            billsNone -> "None"
+            else -> "Rent, phone, subscriptions…"
+        })
+        step(R.id.setup_balance_icon, R.id.setup_balance_value, balanceDone, R.drawable.ic_tab_summary,
+            if (balanceDone) money.format(balance) else "What's in your account now")
+        findViewById<View>(R.id.setup_no_bills).visibility = if (billsDone) View.GONE else View.VISIBLE
+
+        val (label, action) = when {
+            !payDone -> "Set your pay" to { editPay() }
+            !billsDone -> "Add a bill" to { openBillSheet(null) }
+            else -> "Add bank balance" to { editBalance() }
+        }
+        findViewById<Button>(R.id.setup_next).apply {
+            text = label
+            setOnClickListener { action() }
+        }
+        if (!payDone) {
+            paydaysEmptyBody.text = "Add your weekly pay to see what's left after each payday's bills."
+            paydaysEmptyButton.text = "Set your pay"
+            paydaysEmptyButton.setOnClickListener { editPay() }
+        } else {
+            paydaysEmptyBody.text = "Add your bank balance to see what's left after each payday."
+            paydaysEmptyButton.text = "Add bank balance"
+            paydaysEmptyButton.setOnClickListener { editBalance() }
+        }
+    }
+
+    private fun setNoBills() {
+        billsNone = true
+        save()
+        refresh()
     }
 
     private fun showBills() {
@@ -530,151 +684,189 @@ class MainActivity : Activity() {
             }
             row.findViewById<TextView>(R.id.bill_row_name).text = bill.name
             row.findViewById<TextView>(R.id.bill_row_amount).text = money.format(bill.amount)
+            val paidOn = bill.recentlyPaid(today)
             val dueText = buildString {
-                append("${due.format(shortDate)} · ${dueIn(daysLeft)}")
+                if (paidOn != null) append("Paid ${paidOn.format(shortDate)} ✓ · next ${due.format(shortDate)}")
+                else append("${due.format(shortDate)} · ${dueIn(daysLeft)}")
                 if (bill.freq != Freq.MONTHLY) append(" · ${bill.freq.label}")
             }
             row.findViewById<TextView>(R.id.bill_row_due).apply {
                 text = dueText
-                setTextColor(if (daysLeft <= 3) warning else secondary)
+                setTextColor(when {
+                    paidOn != null -> positive
+                    daysLeft <= 3 -> warning
+                    else -> secondary
+                })
             }
             val content = row.findViewById<View>(R.id.bill_row_content)
-            content.contentDescription = "${bill.name}, ${money.format(bill.amount)}, due $dueText"
-            makeSwipeable(content, onTap = { openBillSheet(bill) }, onSwiped = { deleteBill(bill) })
+            content.contentDescription = "${bill.name}, ${money.format(bill.amount)}, $dueText"
+            makeSwipeable(row, content, onTap = { openBillSheet(bill) }, onDelete = { deleteBill(bill) }, onPaid = { markPaid(bill) })
             billList.addView(row)
         }
         billsEmpty.visibility = if (bills.isEmpty()) View.VISIBLE else View.GONE
         billsHint.visibility = if (bills.isEmpty()) View.GONE else View.VISIBLE
-        val perMonth = bills.sumOf { it.perWeek } * 365.25 / 7 / 12
-        val allMonthly = bills.all { it.freq == Freq.MONTHLY }
+        val perWeek = bills.sumOf { it.perWeek }
         billsSubtitle.text = when {
             bills.isEmpty() -> "Add what you pay regularly"
-            else -> "${bills.size} bill${if (bills.size == 1) "" else "s"} · ${if (allMonthly) "" else "about "}${money.format(perMonth)} a month"
+            else -> "${bills.size} bill${if (bills.size == 1) "" else "s"} · about ${compactMoney(perWeek)} a week " +
+                "(${compactMoney(perWeek * 365.25 / 7 / 12)} a month)"
         }
         val dueSoon = next.values.any { ChronoUnit.DAYS.between(today, it) <= 3 }
         navItems[2].findViewById<View>(R.id.nav_badge).visibility = if (dueSoon) View.VISIBLE else View.GONE
         navItems[2].contentDescription = if (dueSoon) "Bills, a bill is due soon" else "Bills"
+        updateFab(animate = true)
     }
 
-    // Walks from today to the end of the month. Each payday adds a paycheck, and each bill comes out of
-    // the pay period it's due in. Today's paycheck (if today is payday) is assumed to already be in the
-    // balance; bills due today are assumed not paid yet.
+    // The forecast walks forward one pay period at a time: each payday adds a paycheck, and each bill comes
+    // out of the period it's due in. Today's paycheck (if today is payday) is assumed to already be in the
+    // balance; bills due today are assumed not paid yet (unless marked paid).
     private fun recalculate() {
         val today = LocalDate.now()
         val week = computeWeek(today)
         val monthEnd = today.withDayOfMonth(today.lengthOfMonth())
         val afterMonth = monthEnd.plusDays(1)
-        val paydays = generateSequence(week.nextPayday) { it.plusWeeks(1) }
-            .takeWhile { !it.isAfter(monthEnd) }
-            .toList()
-        val periodStarts = listOf(today) + paydays
+        val inMonth = generateSequence(week.nextPayday) { it.plusWeeks(1) }.takeWhile { !it.isAfter(monthEnd) }.count()
+        val paydays = generateSequence(week.nextPayday) { it.plusWeeks(1) }.take(maxOf(4, inMonth)).toList()
+        val starts = listOf(today) + paydays
 
         forecastList.removeAllViews()
         var running = week.bank
         val chartLabels = mutableListOf<String>()
         val chartValues = mutableListOf<Double>()
-        periodStarts.forEachIndexed { i, start ->
-            val end = periodStarts.getOrNull(i + 1) ?: afterMonth
+        val spoken = mutableListOf<String>()
+        starts.forEachIndexed { i, start ->
+            val end = starts.getOrNull(i + 1) ?: start.plusWeeks(1)
             // One entry per time a bill comes due in this pay period, in date order.
-            val due = bills.flatMap { bill -> bill.dueDates(start, end).map { it to bill } }
+            val due = bills.flatMap { bill -> bill.unpaid(start, end).map { it to bill } }
                 .sortedBy { it.first }
                 .map { it.second }
-            val billsDue = due.sumOf { it.amount }
+            val billsDue = cents(due.sumOf { it.amount })
             val isPayday = i > 0
             val paycheck = if (isPayday) paycheckOn(start) else 0.0
             running = cents(running + paycheck - billsDue)
-            chartLabels += when (i) {
-                0 -> "Now"
-                1 -> start.format(shortDate)
+            chartLabels += when {
+                i == 0 -> "Now"
+                i == 1 || start.month != starts[i - 1].month -> start.format(shortDate)
                 else -> start.dayOfMonth.toString()
             }
             chartValues += running
+            spoken += "${if (isPayday) start.format(dayFormat) else "now"} ${compactMoney(running)}"
 
             val row = layoutInflater.inflate(R.layout.forecast_row, forecastList, false)
-            row.findViewById<TextView>(R.id.chip_top).text =
-                if (isPayday) start.format(DateTimeFormatter.ofPattern("EEE")) else "Today"
+            row.findViewById<TextView>(R.id.chip_top).text = if (isPayday) start.format(weekday) else "Today"
             row.findViewById<TextView>(R.id.chip_day).text = start.dayOfMonth.toString()
             if (!isPayday) {
                 row.findViewById<View>(R.id.chip).setBackgroundResource(R.drawable.chip_today)
                 row.findViewById<TextView>(R.id.chip_top).setTextColor(secondary)
                 row.findViewById<TextView>(R.id.chip_day).setTextColor(textColor)
             }
-            row.findViewById<TextView>(R.id.forecast_title).text = SpannableStringBuilder().apply {
+            row.findViewById<TextView>(R.id.forecast_title).apply {
                 if (isPayday) {
-                    append("+" + money.format(paycheck), ForegroundColorSpan(positive), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    if (start in paycheckChanges) {
-                        val from = length
-                        append("  changed")
-                        setSpan(ForegroundColorSpan(secondary), from, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                        setSpan(RelativeSizeSpan(0.8f), from, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    }
+                    text = "+" + money.format(paycheck)
+                    setTextColor(positive)
                 } else {
-                    append("Before payday")
+                    text = "Until payday"
                 }
             }
-            row.findViewById<TextView>(R.id.forecast_title).typeface =
-                Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            row.findViewById<View>(R.id.forecast_changed).visibility =
+                if (isPayday && start in paycheckChanges) View.VISIBLE else View.GONE
             row.findViewById<TextView>(R.id.forecast_bills).text = if (due.isEmpty()) {
-                "No bills"
+                if (isPayday) "No bills" else "No bills before payday"
             } else {
                 val names = due.groupingBy { it }.eachCount().entries
                     .joinToString { (bill, times) -> if (times > 1) "${bill.name} ×$times" else bill.name }
                 "−${money.format(billsDue)} · $names"
             }
             showMoney(row.findViewById(R.id.forecast_left), running)
-            if (isPayday) row.setOnClickListener { editPaycheck(start) }
+            val paycheckDate = if (isPayday) start else week.payday
+            row.setOnClickListener { editPaycheck(paycheckDate) }
+            row.accessibilityDelegate = clickLabel(if (isPayday) "Change this paycheck" else "Change this week's pay")
             forecastList.addView(row)
         }
 
+        // End of month, before any other spending, and if you spend your weekly money.
         val monthName = monthEnd.month.getDisplayName(TextStyle.FULL, Locale.getDefault())
-        paydaysSubtitle.text = "Rest of $monthName · tap a payday to change its paycheck"
+        val payInMonth = paydays.filter { !it.isAfter(monthEnd) }
+        val endBillsOnly = cents(week.bank + payInMonth.sumOf { paycheckOn(it) } - billsDueIn(today, afterMonth))
+        val spendRest = payInMonth.sumOf { p ->
+            maxOf(0.0, paycheckOn(p) - week.billsShare) * minOf(7L, ChronoUnit.DAYS.between(p, afterMonth)) / 7
+        }
+        val endIfSpending = cents(endBillsOnly - maxOf(0.0, week.safe) - spendRest)
+
+        paydaysSubtitle.text = "Next ${paydays.size} paydays · tap one to change its pay"
         endLabel.text = "End of $monthName"
-        showMoney(endBalance, running)
+        showMoney(endBalance, endBillsOnly)
         chartCard.visibility = if (chartValues.size >= 2) View.VISIBLE else View.GONE
-        chart.setData(chartLabels, chartValues) { compactMoney(it) }
+        val low = chartValues.minOrNull() ?: 0.0
+        chart.setData(
+            chartLabels, chartValues,
+            "Bank balance after each payday's bills: ${spoken.joinToString("; ")}. Lowest ${compactMoney(low)}.",
+        ) { compactMoney(it) }
 
         // Summary
-        val short = week.safe < 0
-        hero.setBackgroundResource(if (short) R.drawable.hero_red else R.drawable.hero_green)
-        animateHero(maxOf(0.0, week.safe))
+        val shown = maxOf(0.0, week.safe)
+        hero.setBackgroundResource(if (week.safe < 0) R.drawable.hero_red else R.drawable.hero_green)
+        animateHero(shown)
         val until = week.nextPayday.format(dayFormat)
         heroNote.text = when {
+            bills.isEmpty() && !billsNone -> "No bills added yet, so this may be too high"
             week.free < 0 -> "${money.format(-week.free)} short for upcoming bills" +
                 (week.tightest?.let { " (${it.first.name}, ${it.second.format(shortDate)})" } ?: "")
-            week.pay < week.billsShare -> "Your bills cost ${money.format(week.billsShare - week.pay)} more than your weekly pay"
-            week.spendingMoney < 0 -> "You're ${money.format(-week.spendingMoney)} over this week's spending money"
-            week.free < week.spendingMoney -> "Lowered so your upcoming bills stay covered"
-            else -> "Your spending money until $until"
+            week.pay < week.billsShare -> "Your bills cost ${money.format(week.billsShare - week.pay)} a week more than your pay"
+            week.spendingMoney < 0 -> "You've spent ${money.format(-week.spendingMoney)} more than this week's money"
+            week.free < week.spendingMoney -> "Lowered from ${money.format(week.spendingMoney)} so your bills stay covered"
+            week.daysLeft > 1 && shown > 0 -> "Until payday, $until · about ${shortMoney(cents(shown / week.daysLeft))} a day"
+            else -> "Until payday, $until"
         }
+        // The math behind the number. It adds up to the number shown (unless the bank limits it, which the
+        // note above says).
         heroBreakdown.text = buildString {
-            append("${shortMoney(week.pay)} pay − ${shortMoney(week.billsShare)} bills")
-            if (week.daysTracked < 7) append(" (${week.daysTracked} of 7 days)")
-            append(week.spent?.let { " − ${shortMoney(it)} spent" } ?: " · spending not counted yet")
-            append("  ·  Tap for details")
+            if (week.daysTracked < 7) {
+                append("${shortMoney(week.afterBills)} after bills × ${week.daysTracked}/7 days")
+            } else {
+                append("${shortMoney(week.pay)} pay − ${shortMoney(week.billsShare)} bills")
+            }
+            append(week.spent?.let { " − ${shortMoney(it)} spent" } ?: " · update your balance to count spending")
         }
-        hero.contentDescription = "Safe to spend ${money.format(maxOf(0.0, week.safe))}. ${heroNote.text}. Tap for details."
+        hero.contentDescription = "Safe to spend this week ${money.format(shown)}. ${heroNote.text}. ${heroBreakdown.text}."
         heroEndLabel.text = "End of $monthName"
-        heroEnd.text = money.format(running)
-        heroEnd.setTextColor(if (running < 0) negative else textColor)
-        val cushion = cents(week.free - maxOf(0.0, week.safe))
-        heroCushion.text = money.format(cushion)
-        heroCushion.setTextColor(if (cushion < 0) negative else textColor)
+        heroEnd.text = money.format(endIfSpending)
+        heroEnd.setTextColor(if (endIfSpending < 0) negative else textColor)
+        val extra = cents(week.free - shown)
+        heroCushion.text = money.format(extra)
+        heroCushion.setTextColor(if (extra < 0) negative else textColor)
 
-        glancePayday.text = "${week.nextPayday.format(shortDate)} · +${money.format(paycheckOn(week.nextPayday))}"
+        balanceValue.text = money.format(balance)
+        val updatedDays = balanceUpdated?.let { ChronoUnit.DAYS.between(it, today) }
+        val trackingThisWeek = weekStart == week.payday
+        balanceUpdatedView.text = when {
+            updatedDays == null -> "Tap to update"
+            !trackingThisWeek -> "Update to count this week's spending"
+            updatedDays == 0L -> "Updated today"
+            updatedDays == 1L -> "Updated yesterday"
+            else -> "Updated $updatedDays days ago"
+        }
+        balanceUpdatedView.setTextColor(if (updatedDays == null || !trackingThisWeek || updatedDays >= 3) warning else secondary)
+
+        glancePayday.text = "${week.nextPayday.format(shortDate)} · +${shortMoney(paycheckOn(week.nextPayday))}"
         val nextBill = bills.minByOrNull { it.nextDue(today) }
         if (nextBill == null) {
             glanceBill.text = "None"
             glanceBill.setTextColor(secondary)
         } else {
             val daysLeft = ChronoUnit.DAYS.between(today, nextBill.nextDue(today))
-            glanceBill.text = "${nextBill.name} · ${dueIn(daysLeft)}"
+            glanceBill.text = "${nextBill.name} · ${shortMoney(nextBill.amount)} · ${dueIn(daysLeft)}"
             glanceBill.setTextColor(if (daysLeft <= 3) warning else textColor)
         }
-        val stillDue = cents(bills.sumOf { it.amount * it.dueDates(today, afterMonth).size })
-        glanceDue.text = if (stillDue == 0.0) "All paid" else money.format(stillDue)
+        val dueBefore = bills.sumOf { it.unpaid(today, week.nextPayday).size }
+        glanceDue.text = if (dueBefore == 0) {
+            "Nothing"
+        } else {
+            "${money.format(billsDueIn(today, week.nextPayday))} · $dueBefore bill${if (dueBefore == 1) "" else "s"}"
+        }
     }
 
-    // Counts the headline number up or down to its new value.
+    // Counts the headline number up or down to its new value, and tells screen readers it changed.
     private fun animateHero(target: Double) {
         val from = heroShown ?: target
         heroShown = target
@@ -683,6 +875,7 @@ class MainActivity : Activity() {
             heroAmount.text = bigMoney(target)
             return
         }
+        if (a11y.isEnabled) hero.announceForAccessibility("Safe to spend now ${money.format(target)}")
         heroAnimator = ValueAnimator.ofFloat(from.toFloat(), target.toFloat()).apply {
             duration = 450
             interpolator = DecelerateInterpolator()
@@ -696,29 +889,43 @@ class MainActivity : Activity() {
         }
     }
 
-    // The "explain like I'm 5" breakdown behind Safe to spend, with the real numbers.
+    // "How we got $130.13": the breakdown behind Safe to spend, with the real numbers.
     private fun explainSafeToSpend() {
-        val week = computeWeek(LocalDate.now())
-        val pad = dp(24)
+        val today = LocalDate.now()
+        val week = computeWeek(today)
+        val shown = maxOf(0.0, week.safe)
+        val usedStep1 = week.spendingMoney <= week.free
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(pad, dp(4), pad, dp(8))
+            setPadding(dp(24), dp(4), dp(24), dp(8))
         }
+        val medium = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         fun heading(text: String) = box.addView(TextView(this).apply {
             this.text = text
             setTextColor(secondary)
             textSize = 13f
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            typeface = medium
             setPadding(0, dp(12), 0, dp(4))
+            if (Build.VERSION.SDK_INT >= 28) isAccessibilityHeading = true
         })
-        fun row(label: String, value: String, total: Boolean = false) = box.addView(LinearLayout(this).apply {
+        fun row(label: String, value: String, total: Boolean = false, note: String? = null) = box.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, dp(3), 0, dp(3))
-            addView(TextView(context).apply {
-                text = label
-                setTextColor(textColor)
-                textSize = 15f
+            if (Build.VERSION.SDK_INT >= 28) isScreenReaderFocusable = true
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                addView(TextView(context).apply {
+                    text = label
+                    setTextColor(textColor)
+                    textSize = 15f
+                    if (total) typeface = medium
+                })
+                if (note != null) addView(TextView(context).apply {
+                    text = note
+                    setTextColor(secondary)
+                    textSize = 13f
+                })
             })
             addView(TextView(context).apply {
                 text = value
@@ -726,7 +933,8 @@ class MainActivity : Activity() {
                 textSize = 15f
                 gravity = Gravity.END
                 fontFeatureSettings = "tnum"
-                if (total) typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                setPadding(dp(8), 0, 0, 0)
+                if (total) typeface = medium
             })
         })
         fun line() = box.addView(View(this).apply {
@@ -736,51 +944,115 @@ class MainActivity : Activity() {
                 bottomMargin = dp(4)
             }
         })
-
-        heading("1. Spending money from this week's pay")
-        row("Pay on ${week.payday.format(dayFormat)}", money.format(week.pay))
-        row("Weekly share of your bills", "−" + money.format(week.billsShare))
-        if (week.daysTracked < 7) row("Days left you're tracking", "${week.daysTracked} of 7")
-        row("Spent since payday", week.spent?.let { "−" + money.format(it) } ?: "not counted yet")
-        line()
-        row("Spending money", money.format(week.spendingMoney), total = true)
-
-        heading("2. What the bank can spare")
-        row(if (week.bankIsEstimate) "Bank balance (estimated)" else "Bank balance", money.format(week.bank))
-        row("Kept for upcoming bills", "−" + money.format(week.setAside))
-        line()
-        row("Free money", money.format(week.free), total = true)
-
-        box.addView(TextView(this).apply {
+        fun paragraph(text: String) = box.addView(TextView(this).apply {
+            this.text = text
             setTextColor(secondary)
-            textSize = 13f
-            setPadding(0, dp(14), 0, 0)
-            text = buildString {
-                append("Safe to spend is the smaller of the two: ${money.format(maxOf(0.0, week.safe))}.\n\n")
-                append("Each paycheck puts ${money.format(week.billsShare)} toward bills (rent and other big bills are spread evenly over the weeks). ")
-                val tightest = week.tightest
-                if (tightest != null && week.setAside > 0) {
-                    append("On top of that, ${money.format(week.setAside)} has to stay in the bank now so ${tightest.first.name} on ${tightest.second.format(shortDate)} and everything before it gets paid on time.")
-                } else {
-                    append("That covers every bill on time, so nothing extra has to stay in the bank.")
-                }
-                if (week.spent == null) append("\n\nUpdate your bank balance to count what you've spent since payday.")
-                if (week.bankIsEstimate) append("\n\nYour balance is an estimate: the last one you entered, plus paychecks and minus bills since then.")
+            textSize = 14f
+            setPadding(0, dp(12), 0, 0)
+        })
+
+        heading("Step 1 · This week's spending money")
+        row("Paycheck, ${week.payday.format(dayFormat)}", money.format(week.pay))
+        row("Bills per week", "−" + money.format(week.billsShare))
+        row("Left after bills", money.format(week.afterBills), total = true)
+        val from = week.trackedFrom
+        if (week.daysTracked < 7 && from != null) {
+            val lastDay = week.nextPayday.minusDays(1)
+            val range = if (from == lastDay) from.format(weekday) else "${from.format(weekday)}–${lastDay.format(weekday)}"
+            row("Counted $range (${week.daysTracked} of 7 days)", money.format(week.weekMoney))
+        }
+        if (week.spent != null && from != null && week.startBalance != null) {
+            val since = if (from == week.payday) "payday" else from.format(dayFormat)
+            row("Spent since $since", "−" + money.format(week.spent),
+                note = "${shortMoney(week.startBalance)} → ${shortMoney(balance)}, not counting bills")
+        } else {
+            row("Spent since payday", "not counted yet")
+        }
+        line()
+        row("This week's spending money" + if (usedStep1) "  ✓" else "", money.format(week.spendingMoney), total = true)
+
+        heading("Step 2 · Can the bank cover it?")
+        row(if (week.bankIsEstimate) "Bank balance (estimated)" else "Bank balance today", money.format(week.bank))
+        row("Bill buffer", "−" + money.format(week.setAside))
+        line()
+        row("Spare money" + if (!usedStep1) "  ✓" else "", money.format(week.free), total = true)
+
+        paragraph(
+            (if (shown > 0) "You can spend ${money.format(shown)} until payday (${week.nextPayday.format(dayFormat)}). "
+            else "There's nothing safe to spend until payday (${week.nextPayday.format(dayFormat)}). ") +
+                "We use the lower of step 1 and step 2 (marked ✓), so you never spend money your bills need."
+        )
+        val tightest = week.tightest
+        paragraph(
+            if (week.setAside > 0 && tightest != null) {
+                "Bill buffer: each paycheck puts ${money.format(week.billsShare)} toward bills, but some weeks bills " +
+                    "come due before enough paychecks arrive. Keeping ${money.format(week.setAside)} in the bank covers " +
+                    "every gap for the next 12 months. The tightest point is ${tightest.first.name} on " +
+                    "${tightest.second.format(shortDate)}."
+            } else {
+                "Bill buffer: your paychecks cover every bill on time, so nothing extra has to stay in the bank."
+            }
+        )
+        val extra = cents(week.free - shown)
+        if (extra > 0) {
+            paragraph("Extra savings: ${money.format(week.free)} − ${money.format(shown)} = ${money.format(extra)}. " +
+                "No bill needs it, and it isn't part of your weekly money.")
+        }
+        if (week.daysTracked < 7 && from != null) {
+            paragraph("This week only counts ${week.daysTracked} of 7 days because tracking started on " +
+                "${from.format(weekday)}. Full weeks start ${week.nextPayday.format(weekday)}.")
+        }
+        if (week.spent == null) paragraph("Update your bank balance to count what you've spent since payday.")
+        if (week.bankIsEstimate) {
+            paragraph("Your balance is an estimate: the last one you entered, plus paychecks and minus bills since then.")
+        }
+
+        lateinit var dialog: AlertDialog
+        box.addView(TextView(this).apply {
+            text = "Change the ${week.payday.format(shortDate)} paycheck"
+            setTextColor(accent)
+            textSize = 15f
+            typeface = medium
+            gravity = Gravity.CENTER_VERTICAL
+            minHeight = dp(48)
+            background = rippleBackground()
+            setPadding(0, dp(8), 0, 0)
+            setOnClickListener {
+                dialog.dismiss()
+                editPaycheck(week.payday)
             }
         })
 
-        AlertDialog.Builder(this)
-            .setTitle("How Safe to spend works")
+        dialog = AlertDialog.Builder(this)
+            .setTitle("How we got ${money.format(shown)}")
             .setView(ScrollView(this).apply { addView(box) })
-            .setPositiveButton("OK", null)
-            .setNeutralButton("Change this week's pay") { _, _ -> editPaycheck(week.payday) }
-            .show()
+            .setPositiveButton("Got it", null)
+            .create()
+        dialog.show()
     }
 
     // ---------- Editing ----------
 
-    private fun editBalance() = askAmount("Bank balance", "What's in your account right now?", balance, signed = true) { value ->
-        if (value == null) return@askAmount // empty or invalid: change nothing
+    private fun balanceState() = BalanceState(balance, balanceUpdated, weekStart, weekStartBalance, weekStartTaken)
+
+    private fun restore(state: BalanceState) {
+        balance = state.balance
+        balanceUpdated = state.updated
+        weekStart = state.weekStart
+        weekStartBalance = state.startBalance
+        weekStartTaken = state.startTaken
+    }
+
+    private fun editBalance() = askAmount(
+        "Bank balance",
+        "What's in your account right now? Spending is worked out from how this changes, so update it every few days.",
+        balance.takeIf { balanceUpdated != null },
+        signed = true,
+        neutral = if (balanceUpdated != null) "Still ${money.format(balance)}" to { saveBalance(balance) } else null,
+    ) { saveBalance(it) }
+
+    private fun saveBalance(value: Double) {
+        val before = balanceState()
         val today = LocalDate.now()
         val period = lastPayday(today)
         val oldDate = balanceUpdated
@@ -802,56 +1074,116 @@ class MainActivity : Activity() {
         balanceUpdated = today
         // More money than expected (a late paycheck, a refund): count spending from here instead.
         val start = weekStartTaken ?: today
-        val billsPaid = bills.sumOf { it.amount * it.dueDates(start, today).size }
-        if (balance > weekStartBalance - billsPaid + 0.004) {
+        if (balance > weekStartBalance - billsOut(start, today) + 0.004) {
             weekStartBalance = balance
             weekStartTaken = today
         }
         save()
         refresh()
-    }
-
-    private fun editIncome() = askAmount("Weekly income", "Your usual paycheck each week.", weeklyIncome) {
-        if (it == null) return@askAmount
-        weeklyIncome = it
-        save()
-        refresh()
-    }
-
-    private fun editPaycheck(date: LocalDate) = askAmount(
-        "Paycheck on ${date.format(dayFormat)}",
-        "Usually ${money.format(weeklyIncome)}. Enter this week's amount.",
-        paycheckChanges[date],
-        showZero = true,
-        neutral = "Use usual" to {
-            paycheckChanges.remove(date)
+        val week = computeWeek(today)
+        val spentText = week.spent?.takeIf { it > 0 }?.let {
+            " · ${money.format(it)} spent since " + if (week.trackedFrom == week.payday) "payday" else week.trackedFrom?.format(weekday)
+        } ?: ""
+        showSnack("Balance saved$spentText") {
+            restore(before)
             save()
             refresh()
-        },
-    ) { amount ->
-        if (amount == null || amount == weeklyIncome) paycheckChanges.remove(date) else paycheckChanges[date] = amount
-        save()
-        refresh()
+        }
     }
 
-    private fun pickPayday() {
+    // "Your weekly pay": amount and payday together.
+    private fun editPay() {
+        val content = layoutInflater.inflate(R.layout.dialog_pay, null)
+        val amountBox = content.findViewById<EditText>(R.id.pay_amount)
+        val daySpinner = content.findViewById<Spinner>(R.id.pay_day)
         val days = DayOfWeek.values()
-        AlertDialog.Builder(this)
-            .setTitle("Payday")
-            .setSingleChoiceItems(days.map { it.getDisplayName(TextStyle.FULL, Locale.getDefault()) }.toTypedArray(), payday.ordinal) { dialog, which ->
-                payday = days[which]
-                // Keep counting this week's spending if the starting balance still falls in the new pay week.
-                val period = lastPayday(LocalDate.now())
-                if (weekStartTaken?.isBefore(period) == false) weekStart = period
-                save()
-                refresh()
-                dialog.dismiss()
+        daySpinner.adapter = spinnerAdapter(days.map { it.getDisplayName(TextStyle.FULL, Locale.getDefault()) })
+        daySpinner.setSelection(payday.ordinal)
+        if (weeklyIncome > 0) amountBox.setText(plain(weeklyIncome))
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Your weekly pay")
+            .setMessage("What lands in your bank each week, after tax.")
+            .setView(content)
+            .setPositiveButton("Save") { _, _ ->
+                parseMoney(amountBox.text.toString())?.let { savePay(it, days[daySpinner.selectedItemPosition]) }
             }
             .setNegativeButton("Cancel", null)
+            .create()
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+        dialog.show()
+        val saveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+        fun valid() = parseMoney(amountBox.text.toString())?.let { it > 0 } == true
+        saveButton.isEnabled = valid()
+        onTextChange(amountBox) { saveButton.isEnabled = valid() }
+        amountBox.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE && valid()) {
+                saveButton.performClick()
+                true
+            } else {
+                false
+            }
+        }
+        amountBox.requestFocus()
+    }
+
+    private fun savePay(amount: Double, day: DayOfWeek) {
+        val oldIncome = weeklyIncome
+        val oldDay = payday
+        val oldStart = weekStart
+        weeklyIncome = amount
+        if (day != payday) {
+            payday = day
+            // Keep counting this week's spending if the starting balance still falls in the new pay week.
+            val period = lastPayday(LocalDate.now())
+            if (weekStartTaken?.isBefore(period) == false) weekStart = period
+        }
+        save()
+        refresh()
+        showSnack("Pay saved: ${shortMoney(amount)} every ${payday.getDisplayName(TextStyle.FULL, Locale.getDefault())}") {
+            weeklyIncome = oldIncome
+            payday = oldDay
+            weekStart = oldStart
+            save()
+            refresh()
+        }
+    }
+
+    private fun editPaycheck(date: LocalDate) {
+        if (weeklyIncome <= 0) return editPay()
+        val landed = !date.isAfter(LocalDate.now())
+        askAmount(
+            "Paycheck on ${date.format(dayFormat)}",
+            "Usually ${money.format(weeklyIncome)}. Enter what this paycheck " + (if (landed) "was." else "will be."),
+            paycheckChanges[date] ?: weeklyIncome,
+            showZero = true,
+            neutral = if (date in paycheckChanges) "Use usual" to {
+                paycheckChanges.remove(date)
+                save()
+                refresh()
+            } else null,
+        ) { amount ->
+            if (amount == weeklyIncome) paycheckChanges.remove(date) else paycheckChanges[date] = amount
+            save()
+            refresh()
+            showSnack("${date.format(shortDate)} paycheck: ${money.format(amount)}")
+        }
+    }
+
+    private fun showSettings() {
+        val dayName = payday.getDisplayName(TextStyle.FULL, Locale.getDefault())
+        val items = arrayOf(
+            if (weeklyIncome > 0) "Your pay: ${money.format(weeklyIncome)} every $dayName" else "Your pay: not set",
+            "Check for updates ($updateStatusText)",
+        )
+        AlertDialog.Builder(this)
+            .setTitle("Settings · version ${BuildConfig.VERSION_NAME}")
+            .setItems(items) { _, which -> if (which == 0) editPay() else checkForUpdate(fromUser = true) }
+            .setPositiveButton("Close", null)
             .show()
     }
 
-    // Small dialog with one money field and the keyboard already up.
+    // Small dialog with one "$" field and the keyboard already up. Save only works with a valid amount,
+    // and the keyboard's Done key saves too.
     private fun askAmount(
         title: String,
         message: String,
@@ -859,32 +1191,43 @@ class MainActivity : Activity() {
         signed: Boolean = false,
         showZero: Boolean = false,
         neutral: Pair<String, () -> Unit>? = null,
-        onSave: (Double?) -> Unit,
+        onSave: (Double) -> Unit,
     ) {
-        val input = EditText(this).apply {
+        val content = layoutInflater.inflate(R.layout.dialog_amount, null)
+        val input = content.findViewById<EditText>(R.id.dialog_amount_input).apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or
                 (if (signed) InputType.TYPE_NUMBER_FLAG_SIGNED else 0)
-            filters = arrayOf(InputFilter.LengthFilter(12))
-            hint = "0.00"
+            imeOptions = EditorInfo.IME_ACTION_DONE
             current?.takeIf { showZero || it != 0.0 }?.let { setText(plain(it)) }
             setSelectAllOnFocus(true)
         }
-        val container = FrameLayout(this).apply {
-            setPadding(dp(24), 0, dp(24), 0)
-            addView(input)
-        }
+        fun value() = parseMoney(input.text.toString())?.takeIf { signed || it >= 0 }
         val builder = AlertDialog.Builder(this)
             .setTitle(title)
             .setMessage(message)
-            .setView(container)
-            .setPositiveButton("Save") { _, _ -> onSave(parseMoney(input.text.toString())) }
+            .setView(content)
+            .setPositiveButton("Save") { _, _ -> value()?.let(onSave) }
             .setNegativeButton("Cancel", null)
         neutral?.let { (label, action) -> builder.setNeutralButton(label) { _, _ -> action() } }
         val dialog = builder.create()
         dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
         dialog.show()
+        val saveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+        saveButton.isEnabled = value() != null
+        onTextChange(input) { saveButton.isEnabled = value() != null }
+        input.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE && value() != null) {
+                saveButton.performClick()
+                true
+            } else {
+                false
+            }
+        }
         input.requestFocus()
     }
+
+    private fun spinnerAdapter(items: List<String>) =
+        ArrayAdapter(this, R.layout.spinner_item, items).apply { setDropDownViewResource(R.layout.spinner_dropdown_item) }
 
     // Slide-up sheet for adding a bill (existing == null) or editing one.
     private fun openBillSheet(existing: Bill?) {
@@ -900,6 +1243,7 @@ class MainActivity : Activity() {
         dialog.setContentView(R.layout.sheet_bill)
         val window = dialog.window!!
         window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        window.setTitle(if (existing == null) "New bill" else "Edit bill")
         @Suppress("DEPRECATION")
         window.setSoftInputMode(
             WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
@@ -915,6 +1259,7 @@ class MainActivity : Activity() {
         val dateField = dialog.findViewById<TextView>(R.id.sheet_date)
         val saveButton = dialog.findViewById<Button>(R.id.sheet_save)
         val deleteButton = dialog.findViewById<View>(R.id.sheet_delete)
+        val paidButton = dialog.findViewById<TextView>(R.id.sheet_paid)
 
         // Run the sheet down behind the navigation buttons (Android 11+). Older phones keep the window above
         // them and leave the button colors alone.
@@ -935,12 +1280,20 @@ class MainActivity : Activity() {
             }
         }
 
+        // With large text, put Repeats and Next due on separate lines so neither gets cut off.
+        if (resources.configuration.fontScale >= 1.3f) {
+            dialog.findViewById<LinearLayout>(R.id.sheet_row_when).apply {
+                orientation = LinearLayout.VERTICAL
+                for (i in 0 until childCount) {
+                    getChildAt(i).layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                }
+            }
+        }
+
         dialog.findViewById<TextView>(R.id.sheet_title).text = if (existing == null) "New bill" else "Edit bill"
         saveButton.text = if (existing == null) "Add bill" else "Save"
         deleteButton.visibility = if (existing == null) View.GONE else View.VISIBLE
-        freqSpinner.adapter = ArrayAdapter(this, R.layout.spinner_item, Freq.values().map { it.label }).apply {
-            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        }
+        freqSpinner.adapter = spinnerAdapter(Freq.values().map { it.label })
         // When editing, keep the bill's original start date unless a new one is picked (so a bill due on
         // the 31st stays on the 31st).
         var pickedDate: LocalDate? = null
@@ -948,13 +1301,17 @@ class MainActivity : Activity() {
             nameBox.setText(existing.name)
             amountBox.setText(plain(existing.amount))
             freqSpinner.setSelection(existing.freq.ordinal)
-            dateField.text = existing.nextDue(today).format(dayFormat)
+            val next = existing.nextDue(today)
+            dateField.text = next.format(dayFormat)
+            paidButton.text = "Mark ${next.format(shortDate)} as paid"
+            paidButton.visibility = View.VISIBLE
         }
         fun pickDate() {
             val start = pickedDate ?: existing?.nextDue(today) ?: today
             DatePickerDialog(this, { _, year, month, day ->
                 pickedDate = LocalDate.of(year, month + 1, day)
                 dateField.text = pickedDate!!.format(dayFormat)
+                dateField.error = null
             }, start.year, start.monthValue - 1, start.dayOfMonth).show()
         }
         dateField.setOnClickListener { pickDate() }
@@ -977,14 +1334,24 @@ class MainActivity : Activity() {
         saveButton.setOnClickListener {
             if (closing) return@setOnClickListener // a second tap while the sheet is closing
             val name = nameBox.text.toString().trim()
-            val amount = parseMoney(amountBox.text.toString())
+            val amount = parseMoney(amountBox.text.toString())?.takeIf { it >= 0 }
             val date = pickedDate ?: existing?.date
             when {
-                name.isEmpty() -> nameBox.requestFocus()
-                amount == null || amount < 0 -> amountBox.requestFocus()
-                date == null -> pickDate()
+                name.isEmpty() -> nameBox.apply {
+                    error = "Enter a name"
+                    requestFocus()
+                }
+                amount == null -> amountBox.apply {
+                    error = "Enter an amount"
+                    requestFocus()
+                }
+                date == null -> {
+                    dateField.error = "Pick a date"
+                    pickDate()
+                }
                 else -> {
-                    val bill = Bill(name, amount, Freq.values()[freqSpinner.selectedItemPosition], date)
+                    val before = bills.toList()
+                    val bill = Bill(name, amount, Freq.values()[freqSpinner.selectedItemPosition], date, existing?.paid ?: emptyMap())
                     if (existing == null) {
                         bills.add(bill)
                     } else {
@@ -993,12 +1360,23 @@ class MainActivity : Activity() {
                     }
                     save()
                     haptic(saveButton)
-                    close { refresh() }
+                    close {
+                        refresh()
+                        showSnack(if (existing == null) "$name added" else "$name saved") {
+                            bills.clear()
+                            bills.addAll(before)
+                            save()
+                            refresh()
+                        }
+                    }
                 }
             }
         }
         deleteButton.setOnClickListener {
             if (!closing) close { if (existing != null) deleteBill(existing) }
+        }
+        paidButton.setOnClickListener {
+            if (!closing) close { if (existing != null) markPaid(existing) }
         }
 
         // Slide up from the bottom; the dimmed area only closes the sheet once it's fully open.
@@ -1022,6 +1400,27 @@ class MainActivity : Activity() {
         getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(token, 0)
     }
 
+    // Marks the bill's next due date paid as of today (paid early, or autopay already took it).
+    private fun markPaid(bill: Bill) {
+        val index = bills.indexOf(bill)
+        if (index < 0) return
+        val today = LocalDate.now()
+        val due = bill.nextDue(today)
+        val updated = bill.withPaid(due, today)
+        bills[index] = updated
+        save()
+        refresh()
+        haptic(billList)
+        showSnack("${bill.name} marked paid (due ${due.format(shortDate)})") {
+            val i = bills.indexOf(updated)
+            if (i >= 0) {
+                bills[i] = bill
+                save()
+                refresh()
+            }
+        }
+    }
+
     private fun deleteBill(bill: Bill) {
         val index = bills.indexOf(bill)
         if (index < 0) return
@@ -1029,58 +1428,108 @@ class MainActivity : Activity() {
         save()
         refresh()
         haptic(billList)
-        pendingUndo += index to bill
-        showUndoBar()
+        snackUndo = null
+        pendingDeletes += index to bill
+        showSnackBar(deletedText(), canUndo = true)
+        if (a11y.isTouchExplorationEnabled) {
+            undoButton.performAccessibilityAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null)
+        }
     }
 
-    // One Undo bar for everything deleted in the last few seconds.
-    private fun showUndoBar() {
-        undoText.text = if (pendingUndo.size == 1) "Deleted ${pendingUndo[0].second.name}" else "Deleted ${pendingUndo.size} bills"
-        handler.removeCallbacks(hideUndo)
+    private fun deletedText() =
+        if (pendingDeletes.size == 1) "Deleted ${pendingDeletes[0].second.name}" else "Deleted ${pendingDeletes.size} bills"
+
+    // ---------- Message bar with Undo ----------
+
+    // A message after a change, with Undo when `undo` is given. A new message ends the chance to undo
+    // the previous one.
+    private fun showSnack(message: String, undo: (() -> Unit)? = null) {
+        pendingDeletes.clear()
+        snackUndo = undo
+        showSnackBar(message, canUndo = undo != null)
+    }
+
+    private fun showSnackBar(message: String, canUndo: Boolean) {
+        undoText.text = message
+        undoButton.visibility = if (canUndo) View.VISIBLE else View.GONE
+        positionSnackBar()
+        handler.removeCallbacks(hideSnack)
         undoBar.animate().cancel()
         if (undoBar.visibility != View.VISIBLE) {
             undoBar.alpha = 0f
+            undoBar.translationY = dp(16).toFloat()
             undoBar.visibility = View.VISIBLE
         }
-        undoBar.animate().alpha(1f).setDuration(150).start()
-        handler.postDelayed(hideUndo, 5000)
+        undoBar.animate().alpha(1f).translationY(0f).setDuration(180).start()
+        // Longer when a screen reader is on (or the person asked Android for more time to react).
+        var timeout = 5000
+        if (Build.VERSION.SDK_INT >= 29) {
+            timeout = a11y.getRecommendedTimeoutMillis(
+                timeout,
+                AccessibilityManager.FLAG_CONTENT_TEXT or (if (canUndo) AccessibilityManager.FLAG_CONTENT_CONTROLS else 0),
+            )
+        }
+        if (a11y.isTouchExplorationEnabled) timeout = maxOf(timeout, 20_000)
+        handler.postDelayed(hideSnack, timeout.toLong())
     }
 
-    private fun undoDeletes() {
-        for ((index, bill) in pendingUndo.reversed()) bills.add(minOf(index, bills.size), bill)
-        pendingUndo.clear()
-        save()
-        refresh()
-        handler.removeCallbacks(hideUndo)
-        hideUndo.run()
+    // Leaves room for the + button when it's showing.
+    private fun positionSnackBar() {
+        val params = undoBar.layoutParams as FrameLayout.LayoutParams
+        val end = dp(if (fabShown) 84 else 16)
+        if (params.marginEnd != end) {
+            params.marginEnd = end
+            undoBar.layoutParams = params
+        }
     }
 
-    // Swipe a bill row left to delete it; a tap opens it for editing. Screen readers get a Delete action.
+    private fun undo() {
+        if (pendingDeletes.isNotEmpty()) {
+            for ((index, bill) in pendingDeletes.reversed()) bills.add(minOf(index, bills.size), bill)
+            save()
+            refresh()
+        } else {
+            snackUndo?.invoke()
+        }
+        handler.removeCallbacks(hideSnack)
+        hideSnack.run()
+    }
+
+    // Swipe a bill row right to mark it paid, left to delete it; a tap opens it for editing.
+    // Screen readers get "Mark paid" and "Delete" actions instead.
     @SuppressLint("ClickableViewAccessibility")
-    private fun makeSwipeable(content: View, onTap: () -> Unit, onSwiped: () -> Unit) {
+    private fun makeSwipeable(row: View, content: View, onTap: () -> Unit, onDelete: () -> Unit, onPaid: () -> Unit) {
+        val paidLayer = row.findViewById<View>(R.id.bill_row_paid_layer)
+        val deleteLayer = row.findViewById<View>(R.id.bill_row_delete_layer)
         val slop = ViewConfiguration.get(this).scaledTouchSlop
         var downX = 0f
         var downY = 0f
         var swiping = false
         var moved = false
-        var removing = false
-        content.setOnClickListener { if (!removing) onTap() }
+        var busy = false
+        content.setOnClickListener { if (!busy) onTap() }
         content.accessibilityDelegate = object : View.AccessibilityDelegate() {
             override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
                 super.onInitializeAccessibilityNodeInfo(host, info)
+                info.addAction(AccessibilityNodeInfo.AccessibilityAction(AccessibilityNodeInfo.ACTION_CLICK, "Edit"))
+                info.addAction(AccessibilityNodeInfo.AccessibilityAction(R.id.action_mark_paid, "Mark paid"))
                 info.addAction(AccessibilityNodeInfo.AccessibilityAction(R.id.action_delete_bill, "Delete"))
             }
 
-            override fun performAccessibilityAction(host: View, action: Int, args: Bundle?): Boolean {
-                if (action == R.id.action_delete_bill) {
-                    onSwiped()
-                    return true
-                }
-                return super.performAccessibilityAction(host, action, args)
+            override fun performAccessibilityAction(host: View, action: Int, args: Bundle?): Boolean = when (action) {
+                R.id.action_mark_paid -> true.also { onPaid() }
+                R.id.action_delete_bill -> true.also { onDelete() }
+                else -> super.performAccessibilityAction(host, action, args)
             }
         }
+        fun settle() {
+            content.animate().translationX(0f).setDuration(160).withEndAction {
+                paidLayer.visibility = View.INVISIBLE
+                deleteLayer.visibility = View.INVISIBLE
+            }.start()
+        }
         content.setOnTouchListener { view, event ->
-            if (removing) return@setOnTouchListener true
+            if (busy) return@setOnTouchListener true
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = event.rawX
@@ -1096,28 +1545,38 @@ class MainActivity : Activity() {
                     if (!moved && (abs(dx) > slop || abs(dy) > slop)) {
                         moved = true
                         view.isPressed = false
-                        if (abs(dx) > abs(dy) && dx < 0) {
+                        if (abs(dx) > abs(dy)) {
                             swiping = true
                             view.parent.requestDisallowInterceptTouchEvent(true)
                         }
                     }
-                    if (swiping) view.translationX = minOf(0f, dx)
+                    if (swiping) {
+                        view.translationX = dx
+                        paidLayer.visibility = if (dx > 0) View.VISIBLE else View.INVISIBLE
+                        deleteLayer.visibility = if (dx < 0) View.VISIBLE else View.INVISIBLE
+                    }
                 }
                 MotionEvent.ACTION_UP -> {
                     view.isPressed = false
+                    val dx = view.translationX
                     when {
-                        swiping && -view.translationX > view.width * 0.35f -> {
-                            removing = true
+                        swiping && -dx > view.width * 0.35f -> {
+                            busy = true
                             view.animate().translationX(-view.width.toFloat()).setDuration(160)
-                                .withEndAction { onSwiped() }.start()
+                                .withEndAction { onDelete() }.start()
                         }
-                        swiping -> view.animate().translationX(0f).setDuration(160).start()
+                        swiping && dx > view.width * 0.35f -> {
+                            busy = true
+                            view.animate().translationX(view.width.toFloat()).setDuration(160)
+                                .withEndAction { onPaid() }.start()
+                        }
+                        swiping -> settle()
                         !moved -> view.performClick()
                     }
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     view.isPressed = false
-                    view.animate().translationX(0f).setDuration(160).start()
+                    settle()
                 }
             }
             true
@@ -1160,6 +1619,26 @@ class MainActivity : Activity() {
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
+    private fun rippleBackground(): Drawable? {
+        val value = TypedValue()
+        theme.resolveAttribute(android.R.attr.selectableItemBackground, value, true)
+        return getDrawable(value.resourceId)
+    }
+
+    // Screen readers say "double-tap to <label>" for this row.
+    private fun clickLabel(label: String) = object : View.AccessibilityDelegate() {
+        override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
+            super.onInitializeAccessibilityNodeInfo(host, info)
+            info.addAction(AccessibilityNodeInfo.AccessibilityAction(AccessibilityNodeInfo.ACTION_CLICK, label))
+        }
+    }
+
+    private fun onTextChange(edit: EditText, block: () -> Unit) = edit.addTextChangedListener(object : TextWatcher {
+        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+        override fun afterTextChanged(s: Editable?) = block()
+    })
+
     private fun haptic(view: View) {
         view.performHapticFeedback(
             if (Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.VIRTUAL_KEY
@@ -1177,6 +1656,7 @@ class MainActivity : Activity() {
     private fun billToJson(bill: Bill) = JSONObject()
         .put("name", bill.name).put("amount", bill.amount)
         .put("freq", bill.freq.name).put("date", bill.date.toString())
+        .put("paid", JSONObject().apply { for ((due, on) in bill.paid) put(due.toString(), on.toString()) })
 
     // A saved bill, or null if it can't be read (it's skipped instead of crashing the app).
     private fun billFromJson(json: JSONObject): Bill? = runCatching {
@@ -1188,7 +1668,17 @@ class MainActivity : Activity() {
             Freq.MONTHLY to LocalDate.of(LocalDate.now().year, 1, json.optInt("day", 1).coerceIn(1, 31))
         }
         val amount = json.getDouble("amount")
-        if (!amount.isFinite()) null else Bill(json.getString("name"), amount, freq, date)
+        // Paid marks older than two months don't matter any more.
+        val cutoff = LocalDate.now().minusDays(60)
+        val paid = mutableMapOf<LocalDate, LocalDate>()
+        json.optJSONObject("paid")?.let { marks ->
+            for (key in marks.keys()) {
+                val due = runCatching { LocalDate.parse(key) }.getOrNull() ?: continue
+                val on = runCatching { LocalDate.parse(marks.getString(key)) }.getOrNull() ?: continue
+                if (!due.isBefore(cutoff) || !on.isBefore(cutoff)) paid[due] = on
+            }
+        }
+        if (!amount.isFinite()) null else Bill(json.getString("name"), amount, freq, date, paid)
     }.getOrNull()
 
     private fun load() {
@@ -1198,6 +1688,7 @@ class MainActivity : Activity() {
         balanceUpdated = date("balance_updated")
         weeklyIncome = number("weekly_income") ?: 0.0
         payday = runCatching { DayOfWeek.of(prefs.getInt("payday", DayOfWeek.FRIDAY.value)) }.getOrDefault(DayOfWeek.FRIDAY)
+        billsNone = prefs.getBoolean("bills_none", false)
         runCatching {
             val saved = JSONArray(prefs.getString("bills", null) ?: "[]")
             for (i in 0 until saved.length()) saved.optJSONObject(i)?.let { json -> billFromJson(json)?.let { bills.add(it) } }
@@ -1229,6 +1720,7 @@ class MainActivity : Activity() {
             .putString("balance_updated", balanceUpdated?.toString())
             .putString("weekly_income", weeklyIncome.toString())
             .putInt("payday", payday.value)
+            .putBoolean("bills_none", billsNone)
             .putString("bills", saved.toString())
             .putString("paycheck_changes", changes.toString())
             .putString("week_start", weekStart?.toString())
@@ -1250,9 +1742,9 @@ class MainActivity : Activity() {
     }
 
     // Looks at the latest GitHub Release; if it's newer than this build, shows the update banner.
-    private fun checkForUpdate() {
+    private fun checkForUpdate(fromUser: Boolean = false) {
         val current = BuildConfig.VERSION_NAME
-        updateStatus.text = "Checking…"
+        updateStatusText = "checking…"
         thread {
             val result = runCatching {
                 val conn = URL("https://api.github.com/repos/$REPO/releases/latest").openConnection() as HttpURLConnection
@@ -1269,15 +1761,23 @@ class MainActivity : Activity() {
                 if (isDestroyed) return@runOnUiThread
                 val update = result.getOrNull()
                 when {
-                    result.isFailure -> updateStatus.text = "Couldn't check · version $current"
-                    update == null -> updateStatus.text = "Up to date · version $current"
+                    result.isFailure -> updateStatusText = "couldn't check"
+                    update == null -> updateStatusText = "up to date"
                     else -> {
                         latestVersion = update.first
                         updateUrl = update.second
-                        updateStatus.text = "Version ${update.first} is available"
+                        updateStatusText = "version ${update.first} is ready"
                         if (!downloading) updateText.text = "Version ${update.first} is ready"
                         updateBanner.visibility = View.VISIBLE
                     }
+                }
+                if (fromUser) {
+                    val message = when {
+                        result.isFailure -> "Couldn't check for updates. Check your connection."
+                        update == null -> "You're up to date (version $current)."
+                        else -> "Version ${update.first} is ready. Tap Update on Summary."
+                    }
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -1336,7 +1836,7 @@ class MainActivity : Activity() {
                 downloading = false
                 if (isDestroyed) return@runOnUiThread
                 updateButton.isEnabled = true
-                updateText.text = result.exceptionOrNull()?.let { "Update failed: ${it.message}" } ?: "Installing…"
+                updateText.text = if (result.isFailure) "Update failed. Check your connection and try again." else "Installing…"
             }
         }
     }

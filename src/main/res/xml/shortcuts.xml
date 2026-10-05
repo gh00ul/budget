@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the app icon for these. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/shortcut_balance"
+        android:shortcutId="balance"
+        android:shortcutLongLabel="@string/shortcut_balance_long"
+        android:shortcutShortLabel="@string/shortcut_balance_short">
+        <intent
+            android:action="com.gh00ul.budget.UPDATE_BALANCE"
+            android:targetClass="com.gh00ul.budget.MainActivity"
+            android:targetPackage="com.gh00ul.budget" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/shortcut_bill"
+        android:shortcutId="add_bill"
+        android:shortcutLongLabel="@string/shortcut_bill_long"
+        android:shortcutShortLabel="@string/shortcut_bill_short">
+        <intent
+            android:action="com.gh00ul.budget.ADD_BILL"
+            android:targetClass="com.gh00ul.budget.MainActivity"
+            android:targetPackage="com.gh00ul.budget" />
+    </shortcut>
+</shortcuts>

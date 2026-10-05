@@ -12,8 +12,9 @@ import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.View
 
-// Line chart of the balance after each pay period. Labels the final value, and the low point when the
-// balance actually dips (or goes negative).
+// Line chart of the balance after each pay period. The first point is today (drawn filled, since it's
+// real); the rest are forecasts. Labels today's and the final value, and the low point when the balance
+// actually dips (or goes negative).
 class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs) {
     private var labels: List<String> = emptyList()
     private var values: List<Double> = emptyList()
@@ -53,10 +54,12 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
         typeface = medium
     }
 
-    fun setData(labels: List<String>, values: List<Double>, format: (Double) -> String) {
+    // `description` is what a screen reader says for the chart.
+    fun setData(labels: List<String>, values: List<Double>, description: String, format: (Double) -> String) {
         this.labels = labels
         this.values = values
         this.format = format
+        contentDescription = description
         invalidate()
     }
 
@@ -65,13 +68,15 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
         val positive = context.getColor(R.color.positive)
         val negative = context.getColor(R.color.negative)
         val textColor = context.getColor(R.color.text)
+        val secondary = context.getColor(R.color.text_secondary)
         val anyNegative = values.any { it < 0 }
         val color = if (anyNegative) negative else positive
 
+        // Room for the value labels above and the axis labels below, which grow with the font size.
         val left = 16 * dp
         val right = width - 16 * dp
-        val top = 30 * dp
-        val bottom = height - 24 * dp
+        val top = valueText.textSize + 12 * dp
+        val bottom = height - axisText.textSize - 14 * dp
         val minV = minOf(0.0, values.min())
         val maxV = maxOf(values.max(), 0.0)
         val span = (maxV - minV).takeIf { it > 0 } ?: 1.0
@@ -87,7 +92,7 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
             lineTo(x(0), bottom)
             close()
         }
-        fillPaint.shader = LinearGradient(0f, top, 0f, bottom, withAlpha(color, 0x50), withAlpha(color, 0x00), Shader.TileMode.CLAMP)
+        fillPaint.shader = LinearGradient(0f, top, 0f, bottom, withAlpha(color, 0x30), withAlpha(color, 0x00), Shader.TileMode.CLAMP)
         canvas.drawPath(area, fillPaint)
         if (anyNegative) canvas.drawLine(left, y(0.0), right, y(0.0), zeroPaint)
         linePaint.color = color
@@ -101,13 +106,15 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
         values.forEachIndexed { i, v ->
             val radius = if (showLow && i == low) 6 * dp else 4 * dp
             canvas.drawCircle(x(i), y(v), radius, dotPaint)
-            canvas.drawCircle(x(i), y(v), radius - 2 * dp, holePaint)
+            if (i != 0) canvas.drawCircle(x(i), y(v), radius - 2 * dp, holePaint) // today is solid
             canvas.drawText(labels.getOrElse(i) { "" }, x(i), height - 6 * dp, axisText)
         }
 
+        valueText.color = secondary
+        drawLabel(canvas, format(values[0]), x(0), y(values[0]))
         valueText.color = if (values[last] < 0) negative else textColor
         drawLabel(canvas, format(values[last]), x(last), y(values[last]))
-        if (showLow && low != last) {
+        if (showLow && low != last && low != 0) {
             valueText.color = if (values[low] < 0) negative else textColor
             drawLabel(canvas, "Low ${format(values[low])}", x(low), y(values[low]))
         }

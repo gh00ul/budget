@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Screen-reader "Delete" action on a bill row. -->
+    <!-- Screen-reader actions on a bill row. -->
     <item name="action_delete_bill" type="id" />
+    <item name="action_mark_paid" type="id" />
 </resources>

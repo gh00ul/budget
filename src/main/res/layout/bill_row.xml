@@ -1,21 +1,50 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One bill. The content slides left over a red "Delete" layer when swiped. -->
+<!-- One bill. Swiping right shows a green "Paid" layer, swiping left a red "Delete" layer. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content">
 
     <LinearLayout
+        android:id="@+id/bill_row_paid_layer"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@drawable/delete_bg"
-        android:gravity="center_vertical|end"
+        android:background="@drawable/paid_bg"
+        android:gravity="center_vertical|start"
+        android:importantForAccessibility="noHideDescendants"
         android:orientation="horizontal"
-        android:paddingEnd="20dp">
+        android:paddingStart="20dp"
+        android:visibility="invisible">
 
         <ImageView
             android:layout_width="20dp"
             android:layout_height="20dp"
-            android:importantForAccessibility="no"
+            android:src="@drawable/ic_check"
+            android:tint="@color/positive" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:fontFamily="sans-serif-medium"
+            android:text="Paid"
+            android:textColor="@color/positive"
+            android:textSize="15sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/bill_row_delete_layer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/delete_bg"
+        android:gravity="center_vertical|end"
+        android:importantForAccessibility="noHideDescendants"
+        android:orientation="horizontal"
+        android:paddingEnd="20dp"
+        android:visibility="invisible">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
             android:src="@drawable/ic_delete"
             android:tint="@color/negative" />
 
@@ -23,10 +52,10 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="6dp"
+            android:fontFamily="sans-serif-medium"
             android:text="Delete"
             android:textColor="@color/negative"
-            android:textSize="15sp"
-            android:textStyle="bold" />
+            android:textSize="15sp" />
     </LinearLayout>
 
     <LinearLayout
@@ -46,9 +75,9 @@
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="@drawable/circle"
+            android:fontFamily="sans-serif-medium"
             android:gravity="center"
             android:importantForAccessibility="no"
-            android:fontFamily="sans-serif-medium"
             android:textSize="16sp" />
 
         <LinearLayout
@@ -63,7 +92,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
-                android:singleLine="true"
+                android:maxLines="2"
                 android:textColor="@color/text"
                 android:textSize="16sp" />
 
@@ -71,8 +100,7 @@
                 android:id="@+id/bill_row_due"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:singleLine="true"
+                android:maxLines="2"
                 android:textColor="@color/text_secondary"
                 android:textSize="13sp" />
         </LinearLayout>

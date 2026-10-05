@@ -8,6 +8,16 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:alertDialogTheme">@style/AppDialog</item>
+        <item name="android:datePickerDialogTheme">@style/AppDatePickerDialog</item>
+    </style>
+
+    <!-- Date picker: same rounded dialog, green header with matching corners. -->
+    <style name="AppDatePickerDialog" parent="AppDialog">
+        <item name="android:datePickerStyle">@style/AppDatePicker</item>
+    </style>
+
+    <style name="AppDatePicker" parent="@android:style/Widget.Material.Light.DatePicker">
+        <item name="android:headerBackground">@drawable/date_header</item>
     </style>
 
     <!-- Pop-up dialogs: rounded corners, sentence-case buttons. -->
@@ -55,9 +65,18 @@
     <style name="TileLabel">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:singleLine">true</item>
+        <item name="android:maxLines">2</item>
         <item name="android:textColor">@color/text_secondary</item>
         <item name="android:textSize">13sp</item>
+    </style>
+
+    <style name="TileCaption">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">2dp</item>
+        <item name="android:maxLines">2</item>
+        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:textSize">12sp</item>
     </style>
 
     <style name="TileValue" parent="Money">
@@ -103,7 +122,7 @@
     <style name="SectionLabel">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_marginStart">8dp</item>
+        <item name="android:layout_marginStart">4dp</item>
         <item name="android:layout_marginTop">4dp</item>
         <item name="android:layout_marginBottom">8dp</item>
         <item name="android:fontFamily">sans-serif-medium</item>
@@ -133,7 +152,8 @@
     <style name="GlanceLabel">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:singleLine">true</item>
+        <item name="android:maxLines">2</item>
+        <item name="android:maxWidth">150dp</item>
         <item name="android:textColor">@color/text</item>
         <item name="android:textSize">16sp</item>
     </style>
@@ -144,10 +164,11 @@
         <item name="android:layout_marginStart">12dp</item>
         <item name="android:layout_weight">1</item>
         <item name="android:ellipsize">end</item>
+        <item name="android:fontFeatureSettings">tnum</item>
         <item name="android:gravity">end</item>
-        <item name="android:singleLine">true</item>
+        <item name="android:maxLines">2</item>
         <item name="android:textColor">@color/text</item>
-        <item name="android:textSize">15sp</item>
+        <item name="android:textSize">16sp</item>
     </style>
 
     <!-- Round tinted icon at the start of a row. -->
@@ -240,6 +261,7 @@
     <style name="DollarSign">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
+        <item name="android:importantForAccessibility">no</item>
         <item name="android:text">$</item>
         <item name="android:textColor">@color/text_secondary</item>
         <item name="android:textSize">16sp</item>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shortcut_balance_short">Update balance</string>
+    <string name="shortcut_balance_long">Update bank balance</string>
+    <string name="shortcut_bill_short">Add bill</string>
+    <string name="shortcut_bill_long">Add a bill</string>
+</resources>

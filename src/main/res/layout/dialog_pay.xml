@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "Your weekly pay": amount and payday together. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingHorizontal="24dp">
+
+    <TextView
+        style="@style/FieldLabel"
+        android:labelFor="@+id/pay_amount"
+        android:text="Amount" />
+
+    <LinearLayout style="@style/MoneyBox">
+
+        <TextView style="@style/DollarSign" />
+
+        <EditText
+            android:id="@+id/pay_amount"
+            style="@style/MoneyInput"
+            android:imeOptions="actionDone"
+            android:inputType="numberDecimal"
+            android:selectAllOnFocus="true" />
+    </LinearLayout>
+
+    <TextView
+        style="@style/FieldLabel"
+        android:labelFor="@+id/pay_day"
+        android:text="Paid every" />
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:addStatesFromChildren="true"
+        android:background="@drawable/input_bg"
+        android:minHeight="48dp">
+
+        <Spinner
+            android:id="@+id/pay_day"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical"
+            android:background="@null"
+            android:dropDownWidth="match_parent"
+            android:minHeight="48dp"
+            android:popupBackground="@drawable/popup_bg" />
+    </FrameLayout>
+</LinearLayout>
