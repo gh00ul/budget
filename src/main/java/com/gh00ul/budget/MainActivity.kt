@@ -190,6 +190,7 @@ class MainActivity : Activity() {
         val firstShort: Pair<Bill, LocalDate>?,
         val free: Double, // "spare money": bank - setAside
         val safe: Double, // the smaller of spendingMoney and free
+        val fromBank: Boolean, // spent = purchases synced from the bank, not balance changes
     )
 
     private class BalanceState(
@@ -229,6 +230,11 @@ class MainActivity : Activity() {
     private var weekStartBalance = 0.0
     private var weekStartTaken: LocalDate? = null
     private var weekStartProjected = false
+
+    // Bank sync (BankSync.kt). The balance comes from checking; purchases on checking and cards count as spent.
+    private val bank by lazy { BankStore(this) }
+    private var bankSyncing = false
+    private var earlyPay: LocalDate? = null // an upcoming payday whose paycheck is already in the synced balance
 
     private var updateUrl: String? = null
     private var latestVersion: String? = null
@@ -317,7 +323,7 @@ class MainActivity : Activity() {
 
         hero.setOnClickListener { explainSafeToSpend() }
         findViewById<View>(R.id.balance_row).setOnClickListener { editBalance() }
-        findViewById<View>(R.id.log_purchase).setOnClickListener { logPurchase() }
+        findViewById<View>(R.id.log_purchase).setOnClickListener { if (bank.isLinked) showPurchases() else logPurchase() }
         findViewById<View>(R.id.glance_payday_row).setOnClickListener { showTab(1) }
         findViewById<View>(R.id.glance_bill_row).setOnClickListener {
             val today = LocalDate.now()
@@ -362,6 +368,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         refresh()
+        syncBank()
         // Back from the install prompt without installing (or it failed): let them try again.
         if (updateUrl != null && !downloading) {
             updateText.text = "Version $latestVersion is ready"
@@ -527,8 +534,14 @@ class MainActivity : Activity() {
 
     private fun paycheckOn(date: LocalDate) = paycheckChanges[date] ?: weeklyIncome
 
-    // The balance entered, plus that day's paycheck if it hadn't landed yet.
-    private fun effectiveBalance() = balance + (pendingPay?.takeIf { it == balanceUpdated }?.let { paycheckOn(it) } ?: 0.0)
+    // The balance entered, plus a paycheck that hadn't landed yet, minus one that landed before its payday
+    // (moving the balance forward adds it back on that payday).
+    private fun effectiveBalance(): Double {
+        val updated = balanceUpdated ?: return balance
+        return balance +
+            (pendingPay?.takeIf { !it.isAfter(updated) }?.let { paycheckOn(it) } ?: 0.0) -
+            (earlyPay?.takeIf { it.isAfter(updated) }?.let { paycheckOn(it) } ?: 0.0)
+    }
 
     // Unpaid bills due in [from, until).
     private fun billsDueIn(from: LocalDate, until: LocalDate) = cents(bills.sumOf { it.amount * it.unpaid(from, until).size })
@@ -590,30 +603,33 @@ class MainActivity : Activity() {
         val next = today.with(TemporalAdjusters.next(payday))
         val pay = paycheckOn(period)
         val share = cents(bills.sumOf { it.perWeek })
+        // With the bank linked, spent = this pay week's purchases, so the whole week always counts.
+        val bankSpent = if (bank.isLinked && bank.checkedAt > 0) bankSpending(period, today).first else null
         val start = weekStartTaken
-        val tracking = weekStart == period && start != null
+        val tracking = bankSpent == null && weekStart == period && start != null
         // Tracking that only started mid-week (no earlier balance to carry forward) covers the rest of the week.
         val daysTracked =
             if (tracking && start!!.isAfter(period)) ChronoUnit.DAYS.between(start, next).coerceIn(1, 7) else 7L
-        val spent = if (tracking) {
-            cents(maxOf(0.0, weekStartBalance - effectiveBalance() - billsOut(start!!, balanceUpdated ?: today)))
-        } else {
-            null
+        val spent = when {
+            bankSpent != null -> bankSpent
+            tracking -> cents(maxOf(0.0, weekStartBalance - effectiveBalance() - billsOut(start!!, balanceUpdated ?: today)))
+            else -> null
         }
         val afterBills = cents(pay - share)
         val weekMoney = cents(afterBills * daysTracked / 7)
         val spendingMoney = cents(weekMoney - (spent ?: 0.0))
-        val bank = cents(currentBalance(today))
-        val buffer = setAside(today, share, bank)
-        val free = cents(bank - buffer.amount)
+        val bankNow = cents(currentBalance(today))
+        val buffer = setAside(today, share, bankNow)
+        val free = cents(bankNow - buffer.amount)
         return Week(
             payday = period, nextPayday = next, daysLeft = ChronoUnit.DAYS.between(today, next),
             pay = pay, billsShare = share, afterBills = afterBills, daysTracked = daysTracked, weekMoney = weekMoney,
-            trackedFrom = if (tracking) start else null, startBalance = if (tracking) weekStartBalance else null,
-            spent = spent, spendingMoney = spendingMoney, bank = bank,
-            bankIsEstimate = balanceUpdated?.isBefore(today) == true && abs(bank - balance) > 0.004,
+            trackedFrom = if (bankSpent != null) period else if (tracking) start else null,
+            startBalance = if (tracking) weekStartBalance else null,
+            spent = spent, spendingMoney = spendingMoney, bank = bankNow,
+            bankIsEstimate = balanceUpdated?.isBefore(today) == true && abs(bankNow - balance) > 0.004,
             setAside = buffer.amount, tightest = buffer.tightest, firstShort = buffer.firstShort,
-            free = free, safe = cents(minOf(spendingMoney, free)),
+            free = free, safe = cents(minOf(spendingMoney, free)), fromBank = bankSpent != null,
         )
     }
 
@@ -624,6 +640,459 @@ class MainActivity : Activity() {
     }
 
     private fun isSetUp() = weeklyIncome > 0 && balanceUpdated != null
+
+    // ---------- Bank sync ----------
+
+    // How a synced transaction counts.
+    private enum class Kind { SPEND, BILL, TRANSFER, INCOME, SKIPPED }
+
+    private class Sorted(val txn: BankTxn, val kind: Kind, val bill: Pair<Int, LocalDate>?) // bill = (index in bills, due date)
+
+    // Purchases count from the checking account the balance comes from, and from credit cards.
+    private fun spendAccounts(): Set<String> =
+        bank.accounts.filter { it.id == bank.accountId || it.isCredit }.map { it.id }.toSet()
+
+    // Moving money between your own accounts, or paying a card or loan. Cash from an ATM is spending.
+    private fun isTransfer(t: BankTxn): Boolean {
+        val category = "${t.category} ${t.detail}".lowercase()
+        if ("withdrawal" in category) return false
+        val name = t.name.uppercase()
+        return "transfer in" in category || "transfer out" in category || "loan payment" in category ||
+            "credit card payment" in category || name.contains("PAYMENT TO CREDIT CARD") ||
+            name.contains("CREDIT CARD PAYMENT") || name.contains("CREDIT CARD PMT") ||
+            name.contains("PAYMENT THANK YOU") || name.contains("PAYMENT - THANK YOU") ||
+            name.startsWith("TRANSFER TO ") || name.startsWith("TRANSFER FROM ")
+    }
+
+    private fun isPayroll(t: BankTxn): Boolean {
+        val name = t.name.uppercase()
+        return "wages" in t.detail.lowercase() || name.contains("PAYROLL") || name.contains("DIR DEP") ||
+            name.contains("DIRECT DEP") || name.contains("SALARY")
+    }
+
+    // The deposit that is that payday's paycheck: into checking, at least half the expected pay, within two
+    // days before (paid early) to a day after.
+    private fun payDeposit(payday: LocalDate, upTo: LocalDate = LocalDate.now()): BankTxn? {
+        val expected = paycheckOn(payday)
+        if (expected <= 0) return null
+        val last = minOf(payday.plusDays(1).toEpochDay(), upTo.toEpochDay())
+        return bank.txns.firstOrNull {
+            it.account == bank.accountId && it.amount >= expected * 0.5 && (isPayroll(it) || !isTransfer(it)) &&
+                it.date.toEpochDay() in payday.minusDays(2).toEpochDay()..last
+        }
+    }
+
+    // "Phone bill" and "VERIZON WIRELESS" don't match; "Verizon" does.
+    private fun nameMatches(billName: String, txnName: String): Boolean {
+        val name = txnName.lowercase()
+        return billName.lowercase().split(Regex("[^a-z0-9]+"))
+            .any { it.length >= 3 && it !in genericBillWords && name.contains(it) }
+    }
+
+    private val genericBillWords = setOf("bill", "the", "and", "pay", "payment", "monthly", "auto", "autopay", "fee")
+
+    // Which transactions paid which bill due dates: the amount matches (to the cent, near enough), or the name
+    // matches and the amount is close, within 4 days of the due date. Choices made by hand come first.
+    private fun billMatches(): Map<String, Pair<Int, LocalDate>> {
+        val txns = bank.txns
+        val overrides = bank.overrides
+        val accounts = spendAccounts()
+        val result = mutableMapOf<String, Pair<Int, LocalDate>>()
+        val taken = mutableSetOf<Pair<Int, LocalDate>>()
+        for (t in txns) {
+            val name = overrides[t.id]?.takeIf { it.startsWith("bill:") }?.removePrefix("bill:") ?: continue
+            val i = bills.indexOfFirst { it.name == name }.takeIf { it >= 0 } ?: continue
+            val due = bills[i].dueDates(t.date.minusDays(45), t.date.plusDays(46))
+                .minByOrNull { abs(ChronoUnit.DAYS.between(it, t.date)) } ?: continue
+            result[t.id] = i to due
+            taken += i to due
+        }
+        class Candidate(val txn: BankTxn, val bill: Int, val due: LocalDate, val score: Double)
+        val candidates = mutableListOf<Candidate>()
+        for (t in txns) {
+            if (t.amount >= 0 || t.account !in accounts || t.id in result || overrides[t.id] != null) continue
+            val paid = -t.amount
+            bills.forEachIndexed { i, bill ->
+                if (bill.amount <= 0) return@forEachIndexed
+                val nameHit = nameMatches(bill.name, t.name)
+                val diff = abs(paid - bill.amount)
+                if (diff > maxOf(0.5, bill.amount * 0.01) && !(nameHit && diff <= bill.amount * 0.35)) return@forEachIndexed
+                for (due in bill.dueDates(t.date.minusDays(4), t.date.plusDays(5))) {
+                    val days = abs(ChronoUnit.DAYS.between(due, t.date))
+                    candidates += Candidate(t, i, due, (if (nameHit) 0.0 else 100.0) + diff / bill.amount * 50 + days)
+                }
+            }
+        }
+        for (c in candidates.sortedBy { it.score }) {
+            if (c.txn.id in result || (c.bill to c.due) in taken) continue
+            result[c.txn.id] = c.bill to c.due
+            taken += c.bill to c.due
+        }
+        return result
+    }
+
+    private fun sortTxns(): List<Sorted> {
+        val accounts = spendAccounts()
+        val matches = billMatches()
+        val overrides = bank.overrides
+        return bank.txns.filter { it.account in accounts }.map { t ->
+            val kind = when {
+                overrides[t.id] == "skip" -> Kind.SKIPPED
+                t.id in matches -> Kind.BILL
+                overrides[t.id] == "spend" -> Kind.SPEND
+                isTransfer(t) -> Kind.TRANSFER
+                t.amount > 0 && (t.category.startsWith("Income", true) || isPayroll(t)) -> Kind.INCOME
+                else -> Kind.SPEND // a refund (money back) counts against spending
+            }
+            Sorted(t, kind, matches[t.id])
+        }
+    }
+
+    // Spent from `from` through `to`: purchases minus refunds, and every transaction in that time.
+    private fun bankSpending(from: LocalDate, to: LocalDate): Pair<Double, List<Sorted>> {
+        val week = sortTxns().filter { !it.txn.date.isBefore(from) && !it.txn.date.isAfter(to) }
+        return cents(maxOf(0.0, -week.filter { it.kind == Kind.SPEND }.sumOf { it.txn.amount })) to week
+    }
+
+    // Bills the bank shows as paid get their "paid" mark, dated the day the money left.
+    private fun markBillsFromBank(): List<String> {
+        val txnDates = bank.txns.associate { it.id to it.date }
+        val names = mutableListOf<String>()
+        for ((txnId, match) in billMatches()) {
+            val (i, due) = match
+            val bill = bills.getOrNull(i) ?: continue
+            if (due in bill.paid) continue
+            bills[i] = bill.withPaid(due, txnDates[txnId] ?: continue)
+            names += bill.name
+        }
+        return names.distinct()
+    }
+
+    // On opening the app (at most every half hour), or when asked: get the latest from the bank.
+    private fun syncBank(force: Boolean = false) {
+        if (!bank.isLinked || bankSyncing) return
+        if (!force && System.currentTimeMillis() - bank.checkedAt < 30 * 60_000L) return
+        val url = bank.url ?: return
+        bankSyncing = true
+        if (force) balanceUpdatedView.text = "Syncing…"
+        thread {
+            val result = runCatching { BankServer.sync(url, bank.key()) }
+            runOnUiThread {
+                bankSyncing = false
+                if (isDestroyed) return@runOnUiThread
+                result.onSuccess { applyBank(it, announce = force) }.onFailure { e ->
+                    bank.saveError(e.message ?: "Bank sync failed.")
+                    refresh()
+                    if (force) Toast.makeText(this, e.message ?: "Bank sync failed.", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    // The checking balance becomes the bank balance, paychecks are checked off, and paid bills are marked.
+    private fun applyBank(snapshot: BankSnapshot, announce: Boolean) {
+        bank.saveSnapshot(snapshot)
+        val account = bank.account
+        val value = account?.let { it.available ?: it.current }
+        if (account == null || value == null) {
+            bank.saveError(if (account == null) "Your checking account wasn't found. Pick it again in Settings." else "The bank didn't send a balance.")
+            refresh()
+            return
+        }
+        val today = LocalDate.now()
+        balance = cents(value)
+        balanceUpdated = today
+        // This week's pay not in yet (counted anyway, for up to two days), or next week's already in.
+        val period = lastPayday(today)
+        pendingPay = period.takeIf { ChronoUnit.DAYS.between(it, today) <= 2 && paycheckOn(it) > 0 && payDeposit(it) == null }
+        earlyPay = today.with(TemporalAdjusters.next(payday)).takeIf { payDeposit(it) != null }
+        val marked = markBillsFromBank()
+        save()
+        refresh()
+        when {
+            marked.isNotEmpty() -> showSnack("${marked.joinToString()} marked paid from your bank")
+            announce -> showSnack("Synced with ${account.institution ?: "your bank"}")
+        }
+    }
+
+    private fun bankName() = bank.account?.let { "${it.institution ?: "Bank"} ${it.label}" } ?: "your bank"
+
+    private fun ago(epochMs: Long): String {
+        val minutes = (System.currentTimeMillis() - epochMs) / 60_000
+        return when {
+            minutes < 1 -> "just now"
+            minutes < 60 -> "$minutes min ago"
+            minutes < 24 * 60 -> "${minutes / 60} hr ago"
+            minutes < 48 * 60 -> "yesterday"
+            else -> "${minutes / (24 * 60)} days ago"
+        }
+    }
+
+    // Settings → Connect your bank: the server's address and access key, then which checking account.
+    private fun connectBank() {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(4), dp(24), 0)
+        }
+        fun field(label: String, hint: String, secret: Boolean) = EditText(this).also { edit ->
+            box.addView(TextView(this).apply {
+                text = label
+                setTextColor(secondary)
+                textSize = 13f
+                setPadding(dp(4), dp(12), 0, dp(4))
+                labelFor = View.generateViewId().also { edit.id = it }
+            })
+            edit.hint = hint
+            edit.setSingleLine(true)
+            edit.textSize = 16f
+            edit.minHeight = dp(48)
+            edit.setPadding(dp(14), 0, dp(14), 0)
+            edit.setBackgroundResource(R.drawable.input_bg)
+            edit.inputType = InputType.TYPE_CLASS_TEXT or
+                (if (secret) InputType.TYPE_TEXT_VARIATION_PASSWORD else InputType.TYPE_TEXT_VARIATION_URI)
+            box.addView(edit, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        val urlBox = field("Server address", "https://….workers.dev", secret = false)
+        val keyBox = field("Access key", "APP_API_TOKEN", secret = true)
+        bank.url?.let { urlBox.setText(it) }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Connect your bank")
+            .setMessage("Uses your ClearBudget bank server (Plaid). Your bank login and Plaid keys stay on that server; " +
+                "this phone keeps only the access key, encrypted.")
+            .setView(box)
+            .setPositiveButton("Connect", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.show()
+        val connect = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+        fun valid() = BankServer.cleanUrl(urlBox.text.toString()) != null && keyBox.text.toString().trim().length >= 32
+        connect.isEnabled = valid()
+        onTextChange(urlBox) { connect.isEnabled = valid() }
+        onTextChange(keyBox) { connect.isEnabled = valid() }
+        connect.setOnClickListener {
+            val url = BankServer.cleanUrl(urlBox.text.toString()) ?: return@setOnClickListener
+            val key = keyBox.text.toString().trim()
+            connect.isEnabled = false
+            connect.text = "Connecting…"
+            thread {
+                val result = runCatching { BankServer.snapshot(url, key) }
+                runOnUiThread {
+                    if (isDestroyed) return@runOnUiThread
+                    val snapshot = result.getOrNull()
+                    val checking = snapshot?.accounts.orEmpty().filter { it.isChecking }
+                        .ifEmpty { snapshot?.accounts.orEmpty().filter { it.type == "depository" } }
+                    if (snapshot == null || checking.isEmpty()) {
+                        connect.isEnabled = true
+                        connect.text = "Connect"
+                        Toast.makeText(this, result.exceptionOrNull()?.message
+                            ?: "No checking account on that server yet. Link your bank in ClearBudget first.", Toast.LENGTH_LONG).show()
+                        return@runOnUiThread
+                    }
+                    dialog.dismiss()
+                    pickAccount(checking) { account ->
+                        bank.connect(url, key, account.id)
+                        applyBank(snapshot, announce = false)
+                        syncBank(force = true)
+                    }
+                }
+            }
+        }
+        urlBox.requestFocus()
+    }
+
+    private fun pickAccount(choices: List<BankAccount>, onPick: (BankAccount) -> Unit) {
+        if (choices.size == 1) return onPick(choices[0])
+        AlertDialog.Builder(this)
+            .setTitle("Which account is your balance?")
+            .setItems(choices.map { a ->
+                "${a.institution ?: "Bank"} ${a.label}" + ((a.available ?: a.current)?.let { " · ${money.format(it)}" } ?: "")
+            }.toTypedArray()) { _, which -> onPick(choices[which]) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    // Settings → the bank: sync, switch accounts, or disconnect.
+    private fun bankSettings() {
+        AlertDialog.Builder(this)
+            .setTitle(bankName())
+            .setItems(arrayOf("Sync now", "Use a different account", "Disconnect")) { _, which ->
+                when (which) {
+                    0 -> syncBank(force = true)
+                    1 -> pickAccount(bank.accounts.filter { it.type == "depository" }) {
+                        bank.chooseAccount(it.id)
+                        applyBank(BankSnapshot(bank.accounts, bank.txns, emptyList()), announce = true)
+                    }
+                    else -> AlertDialog.Builder(this)
+                        .setTitle("Disconnect your bank?")
+                        .setMessage("You'll go back to updating your balance yourself. Your bank stays linked on the bank server.")
+                        .setPositiveButton("Disconnect") { _, _ -> disconnectBank() }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+                }
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun disconnectBank() {
+        bank.clear()
+        earlyPay = null
+        pendingPay = null
+        // Spending counts from balance changes again, starting now.
+        val today = LocalDate.now()
+        weekStart = lastPayday(today)
+        weekStartBalance = balance
+        weekStartTaken = today
+        weekStartProjected = false
+        balanceUpdated = today
+        save()
+        refresh()
+        showSnack("Bank disconnected")
+    }
+
+    // Tapping the bank balance when the bank is linked.
+    private fun showBankStatus() {
+        val account = bank.account
+        val message = buildString {
+            account?.let { a ->
+                a.available?.let { append("Available: ${money.format(it)}\n") }
+                a.current?.takeIf { it != a.available }?.let { append("Current: ${money.format(it)}\n") }
+            }
+            append(if (bank.checkedAt > 0) "Synced ${ago(bank.checkedAt)}" else "Not synced yet")
+            bank.error?.let { append("\n\n$it") }
+            append("\n\nYour bank sends new transactions a few times a day, so the newest can take a few hours to show up.")
+        }
+        AlertDialog.Builder(this)
+            .setTitle(bankName())
+            .setMessage(message)
+            .setPositiveButton("Sync now") { _, _ -> syncBank(force = true) }
+            .setNeutralButton("Purchases") { _, _ -> showPurchases() }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    // This pay week's transactions: what counted as spending, the bills, and what didn't count.
+    private fun showPurchases() {
+        val today = LocalDate.now()
+        val period = lastPayday(today)
+        val (spent, week) = bankSpending(period, today)
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(4), dp(24), dp(8))
+        }
+        lateinit var dialog: AlertDialog
+        fun section(title: String, rows: List<Sorted>) {
+            if (rows.isEmpty()) return
+            dialogHeading(box, title)
+            for (s in rows.sortedWith(compareByDescending<Sorted> { it.txn.date }.thenBy { it.txn.name })) {
+                txnRow(box, s) {
+                    dialog.dismiss()
+                    changeTxn(s)
+                }
+            }
+        }
+        val counted = week.filter { it.kind == Kind.SPEND }
+        if (counted.isEmpty()) dialogParagraph(box, "No purchases since payday (${period.format(dayFormat)}).")
+        section("Spending since ${period.format(dayFormat)}", counted)
+        section("Bills (not counted)", week.filter { it.kind == Kind.BILL })
+        section("Not counted", week.filter { it.kind != Kind.SPEND && it.kind != Kind.BILL })
+        dialogParagraph(box, "Tap one to change how it counts. Transfers, card payments and paychecks don't count as spending.")
+        dialog = AlertDialog.Builder(this)
+            .setTitle("Spent ${money.format(spent)} this week")
+            .setView(ScrollView(this).apply { addView(box) })
+            .setPositiveButton("Done", null)
+            .create()
+        dialog.show()
+    }
+
+    private fun txnRow(into: LinearLayout, s: Sorted, onClick: () -> Unit) {
+        val t = s.txn
+        val card = bank.accounts.firstOrNull { it.id == t.account }?.takeIf { it.isCredit }
+        val note = buildString {
+            append(t.date.format(dayFormat))
+            if (t.pending) append(" · pending")
+            if (card != null) append(" · card${card.mask?.let { " ····$it" } ?: ""}")
+            s.bill?.let { (i, due) -> bills.getOrNull(i)?.let { append(" · ${it.name}, due ${due.format(shortDate)}") } }
+        }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(48)
+            setPadding(0, dp(4), 0, dp(4))
+            background = rippleBackground()
+            setOnClickListener { onClick() }
+            accessibilityDelegate = clickLabel("Change how it counts")
+        }
+        row.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            addView(TextView(context).apply {
+                text = t.name
+                setTextColor(if (s.kind == Kind.SPEND || s.kind == Kind.BILL) textColor else secondary)
+                textSize = 15f
+                maxLines = 2
+            })
+            addView(TextView(context).apply {
+                text = note
+                setTextColor(secondary)
+                textSize = 13f
+            })
+        })
+        row.addView(TextView(this).apply {
+            text = if (t.amount > 0) "+" + money.format(t.amount) else "−" + money.format(-t.amount)
+            setTextColor(if (t.amount > 0) positive else if (s.kind == Kind.SPEND || s.kind == Kind.BILL) textColor else secondary)
+            textSize = 15f
+            fontFeatureSettings = "tnum"
+            setPadding(dp(8), 0, 0, 0)
+        })
+        into.addView(row)
+    }
+
+    // Count a transaction differently: not at all, as spending, or as a bill payment.
+    private fun changeTxn(s: Sorted) {
+        val t = s.txn
+        val choices = mutableListOf<Pair<String, () -> Unit>>()
+        fun set(choice: String?) {
+            bank.setOverride(t.id, choice)
+            // No longer this bill's payment: take off the "paid" mark it gave the bill.
+            if (choice?.startsWith("bill:") != true) s.bill?.let { (i, due) -> unmarkBankPaid(i, due, t.date) }
+            markBillsFromBank()
+            save()
+            refresh()
+            showPurchases()
+        }
+        when (s.kind) {
+            Kind.SPEND -> {
+                choices += "Don't count it" to { set("skip") }
+                if (bills.isNotEmpty()) choices += "It paid a bill…" to {
+                    AlertDialog.Builder(this)
+                        .setTitle("Which bill did it pay?")
+                        .setItems(bills.map { "${it.name} · ${money.format(it.amount)}" }.toTypedArray()) { _, which ->
+                            set("bill:${bills[which].name}")
+                        }
+                        .setNegativeButton("Cancel") { _, _ -> showPurchases() }
+                        .show()
+                    Unit
+                }
+            }
+            Kind.BILL -> choices += "Not a bill: count it as spending" to { set("spend") }
+            Kind.SKIPPED -> choices += "Count it again" to { set(null) }
+            Kind.TRANSFER, Kind.INCOME -> choices += "Count it as spending" to { set("spend") }
+        }
+        if (bank.overrides[t.id] != null && s.kind != Kind.SKIPPED) choices += "Undo my choice" to { set(null) }
+        AlertDialog.Builder(this)
+            .setTitle("${t.name} · ${if (t.amount > 0) "+" else "−"}${money.format(abs(t.amount))}")
+            .setItems(choices.map { it.first }.toTypedArray()) { _, which -> choices[which].second() }
+            .setNegativeButton("Cancel") { _, _ -> showPurchases() }
+            .setOnCancelListener { showPurchases() }
+            .show()
+    }
+
+    // A bill that was marked paid because of this transaction isn't paid after all.
+    private fun unmarkBankPaid(index: Int, due: LocalDate, on: LocalDate) {
+        val bill = bills.getOrNull(index) ?: return
+        if (bill.paid[due] == on) bills[index] = bill.withoutPaid(due)
+    }
 
     // ---------- Drawing the screens ----------
 
@@ -896,7 +1365,11 @@ class MainActivity : Activity() {
         for ((date, bill) in due) detailLine(details, "${date.format(dayFormat)} · ${bill.name}", money.format(bill.amount))
         if (due.isEmpty()) detailLine(details, "No bills in this pay week", "")
         details.addView(link(
-            if (isPayday) "Change this paycheck (usually ${shortMoney(weeklyIncome)})" else "Update bank balance",
+            when {
+                isPayday -> "Change this paycheck (usually ${shortMoney(weeklyIncome)})"
+                bank.isLinked -> "Bank details"
+                else -> "Update bank balance"
+            },
         ) { if (isPayday) editPaycheck(start) else editBalance() })
         details.visibility = if (start in openForecastRows) View.VISIBLE else View.GONE
         row.setOnClickListener {
@@ -988,18 +1461,30 @@ class MainActivity : Activity() {
         val updated = balanceUpdated
         val trackingThisWeek = weekStart == week.payday
         balanceValue.text = if (week.bankIsEstimate) "≈ ${money.format(week.bank)}" else money.format(week.bank)
+        val linked = bank.isLinked
+        val pending = pendingPay?.takeIf { updated != null && !it.isAfter(updated) }
+        val early = earlyPay?.takeIf { updated != null && it.isAfter(updated) && !today.isAfter(it) }
+        val syncOld = linked && System.currentTimeMillis() - bank.checkedAt > 24 * 3_600_000L
         balanceUpdatedView.text = when {
-            updated == null -> "Tap to update"
-            pendingPay == updated -> "Includes today's ${shortMoney(paycheckOn(updated))} pay"
+            updated == null -> if (linked) "Syncing…" else "Tap to update"
+            linked && bank.error != null -> "Couldn't sync · tap for details"
+            pending != null -> "Includes ${if (pending == today) "today" else pending.format(weekday)}'s " +
+                "${shortMoney(paycheckOn(pending))} pay" + if (linked) " (not in yet)" else ""
+            early != null -> "Not counting ${early.format(weekday)}'s ${shortMoney(paycheckOn(early))} pay until then"
+            linked -> "${bank.account?.institution ?: "Bank"} · synced ${ago(bank.checkedAt)}"
             week.bankIsEstimate -> "Estimated · you entered ${money.format(balance)} on ${updated.format(weekday)}"
             !trackingThisWeek -> "Update to count this week's spending"
             staleDays == 0L -> "Updated today"
             staleDays == 1L -> "Updated yesterday"
             else -> "Updated $staleDays days ago"
         }
-        balanceUpdatedView.setTextColor(
-            if (updated == null || week.bankIsEstimate || !trackingThisWeek || staleDays >= 3) warning else secondary
-        )
+        balanceUpdatedView.setTextColor(when {
+            linked -> if (bank.error != null || syncOld) warning else secondary
+            updated == null || week.bankIsEstimate || !trackingThisWeek || staleDays >= 3 -> warning
+            else -> secondary
+        })
+        findViewById<ImageView>(R.id.balance_edit_icon).setImageResource(if (linked) R.drawable.ic_sync else R.drawable.ic_edit)
+        findViewById<TextView>(R.id.log_purchase).text = if (linked) "This week's purchases" else "Log a purchase"
 
         glancePayday.text = "${week.nextPayday.format(shortDate)} · +${shortMoney(paycheckOn(week.nextPayday))}"
         val nextBill = bills.minByOrNull { it.nextDue(today) }
@@ -1059,7 +1544,13 @@ class MainActivity : Activity() {
         // Short version
         dialogRow(box, "This week's money", money.format(week.weekMoney),
             note = if (week.daysTracked < 7 && from != null) "${dayRange(from, week.nextPayday)} (${week.daysTracked} of 7 days)" else null)
-        if (spent != null && week.startBalance != null) {
+        lateinit var dialog: AlertDialog
+        if (spent != null && week.fromBank) {
+            val count = bankSpending(week.payday, today).second.count { it.kind == Kind.SPEND }
+            dialogRow(box, "Spent since $since", if (spent > 0) "−" + money.format(spent) else money.format(0.0),
+                note = "$count purchase${if (count == 1) "" else "s"} from ${bank.account?.institution ?: "your bank"} · " +
+                    "bills, transfers and pay don't count")
+        } else if (spent != null && week.startBalance != null) {
             dialogRow(box, "Spent since $since", if (spent > 0) "−" + money.format(spent) else money.format(0.0),
                 note = "${shortMoney(week.startBalance)} → ${shortMoney(effectiveBalance())}, not counting bills")
         } else {
@@ -1109,10 +1600,17 @@ class MainActivity : Activity() {
                 "${from.format(weekday)}. Full weeks start ${week.nextPayday.format(weekday)}.")
         }
         if (week.bankIsEstimate) {
-            dialogParagraph(detail, "Your balance is an estimate: the last one you entered, plus paychecks and minus bills since then.")
+            dialogParagraph(detail, if (week.fromBank) {
+                "Your balance is an estimate: the last one synced, plus paychecks and minus bills since then."
+            } else {
+                "Your balance is an estimate: the last one you entered, plus paychecks and minus bills since then."
+            })
         }
 
-        lateinit var dialog: AlertDialog
+        if (week.fromBank) box.addView(link("See this week's purchases") {
+            dialog.dismiss()
+            showPurchases()
+        })
         val toggle = link("Show the full math") {}
         toggle.setOnClickListener {
             val open = detail.visibility != View.VISIBLE
@@ -1244,6 +1742,7 @@ class MainActivity : Activity() {
     private fun editBalance(
         message: String = "What's in your account right now? Spending is worked out from how this changes, so update it every few days.",
     ) {
+        if (bank.isLinked) return showBankStatus()
         val week = computeWeek(LocalDate.now())
         askAmount(
             "Bank balance",
@@ -1251,7 +1750,11 @@ class MainActivity : Activity() {
             if (balanceUpdated != null) week.bank else null,
             signed = true,
             // Only when the number shown is the one you entered (not an estimate moved forward from an old one).
-            neutral = if (balanceUpdated != null && !week.bankIsEstimate) "No change" to { saveBalance(effectiveBalance()) } else null,
+            neutral = when {
+                balanceUpdated == null -> "Connect bank" to { connectBank() }
+                !week.bankIsEstimate -> "No change" to { saveBalance(effectiveBalance()) }
+                else -> null
+            },
         ) { saveBalance(it) }
     }
 
@@ -1434,7 +1937,7 @@ class MainActivity : Activity() {
         }
         save()
         refresh()
-        if (dayChanged && balanceUpdated != null && balanceUpdated != LocalDate.now()) {
+        if (dayChanged && !bank.isLinked && balanceUpdated != null && balanceUpdated != LocalDate.now()) {
             // The old balance was moved forward using the old payday; start fresh from today's.
             editBalance("Your payday changed. What's in your account right now? This keeps the numbers right from here.")
             return
@@ -1476,11 +1979,18 @@ class MainActivity : Activity() {
         val dayName = payday.getDisplayName(TextStyle.FULL, Locale.getDefault())
         val items = arrayOf(
             if (weeklyIncome > 0) "Your pay: ${money.format(weeklyIncome)} every $dayName" else "Your pay: not set",
+            if (bank.isLinked) "Bank: ${bankName()}" else "Connect your bank (Plaid)",
             "Check for updates ($updateStatusText)",
         )
         AlertDialog.Builder(this)
             .setTitle("Settings · version ${BuildConfig.VERSION_NAME}")
-            .setItems(items) { _, which -> if (which == 0) editPay() else checkForUpdate(fromUser = true) }
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> editPay()
+                    1 -> if (bank.isLinked) bankSettings() else connectBank()
+                    else -> checkForUpdate(fromUser = true)
+                }
+            }
             .setPositiveButton("Close", null)
             .show()
     }
@@ -1798,7 +2308,7 @@ class MainActivity : Activity() {
                 refresh()
             }
         }
-        if (balanceUpdated == today) {
+        if (balanceUpdated == today && !bank.isLinked) {
             AlertDialog.Builder(this)
                 .setTitle("Is it already out of your balance?")
                 .setMessage("You entered ${money.format(balance)} today. Has the ${money.format(bill.amount)} for ${bill.name} already come out of that?")
@@ -1814,6 +2324,9 @@ class MainActivity : Activity() {
     private fun unmarkPaid(bill: Bill, due: LocalDate) {
         val index = bills.indexOf(bill)
         if (index < 0) return
+        // If the bank's transaction was taken as this payment, it isn't: count it as spending instead.
+        val txnId = if (bank.isLinked) billMatches().entries.firstOrNull { it.value == (index to due) }?.key else null
+        txnId?.let { bank.setOverride(it, "spend") }
         val updated = bill.withoutPaid(due)
         bills[index] = updated
         save()
@@ -1821,6 +2334,7 @@ class MainActivity : Activity() {
         showSnack("${bill.name} · ${due.format(shortDate)} no longer marked paid") {
             val i = bills.indexOf(updated)
             if (i >= 0) {
+                txnId?.let { bank.setOverride(it, null) }
                 bills[i] = bill
                 save()
                 refresh()
@@ -2100,6 +2614,7 @@ class MainActivity : Activity() {
         balance = number("balance") ?: 0.0
         balanceUpdated = date("balance_updated")
         pendingPay = date("pending_pay")
+        earlyPay = date("early_pay")
         weeklyIncome = number("weekly_income") ?: 0.0
         payday = runCatching { DayOfWeek.of(prefs.getInt("payday", DayOfWeek.FRIDAY.value)) }.getOrDefault(DayOfWeek.FRIDAY)
         billsNone = prefs.getBoolean("bills_none", false)
@@ -2135,6 +2650,7 @@ class MainActivity : Activity() {
             .putString("balance", balance.toString())
             .putString("balance_updated", balanceUpdated?.toString())
             .putString("pending_pay", pendingPay?.toString())
+            .putString("early_pay", earlyPay?.toString())
             .putString("weekly_income", weeklyIncome.toString())
             .putInt("payday", payday.value)
             .putBoolean("bills_none", billsNone)

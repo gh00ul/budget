@@ -325,6 +325,7 @@
                                 android:textSize="16sp" />
 
                             <ImageView
+                                android:id="@+id/balance_edit_icon"
                                 android:layout_width="18dp"
                                 android:layout_height="18dp"
                                 android:layout_marginStart="8dp"

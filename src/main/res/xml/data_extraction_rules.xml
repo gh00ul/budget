@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+: back up the budget, but not the bank connection or its transactions. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="bank.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="bank.xml" />
+    </device-transfer>
+</data-extraction-rules>

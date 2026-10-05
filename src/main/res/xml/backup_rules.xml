@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and older: back up the budget, but not the bank connection or its transactions. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="bank.xml" />
+</full-backup-content>
