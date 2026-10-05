@@ -1467,7 +1467,7 @@ class MainActivity : Activity() {
         val syncOld = linked && System.currentTimeMillis() - bank.checkedAt > 24 * 3_600_000L
         balanceUpdatedView.text = when {
             updated == null -> if (linked) "Syncing…" else "Tap to update"
-            linked && bank.error != null -> "Couldn't sync · tap for details"
+            linked && bank.error != null -> "Sync problem · tap for details"
             pending != null -> "Includes ${if (pending == today) "today" else pending.format(weekday)}'s " +
                 "${shortMoney(paycheckOn(pending))} pay" + if (linked) " (not in yet)" else ""
             early != null -> "Not counting ${early.format(weekday)}'s ${shortMoney(paycheckOn(early))} pay until then"

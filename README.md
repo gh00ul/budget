@@ -8,6 +8,19 @@ A simple Android budget app for people paid weekly. Enter your bank balance, wee
 
 Your numbers are stored on your phone (and in Android's own backup if you have it turned on), never sent anywhere else.
 
+## Bank sync (optional)
+
+The app can pull your balance and transactions through the Plaid bank server from [clearbudget-personal](https://github.com/gh00ul/clearbudget-personal) (`bank-sync/`). Your bank login and Plaid keys stay on that server; the phone stores only the server's access key, encrypted with a key kept in Android's keystore, and leaves bank data out of backups.
+
+Open **Settings → Connect your bank** and enter the server's address (`https://….workers.dev`) and its `APP_API_TOKEN`, then pick your checking account. After that:
+
+- **Bank balance** comes from that checking account (available balance) every time you open the app, at most every half hour. Tap it to sync now.
+- **Spent this week** is every purchase since payday on that checking account and your credit cards, minus refunds. Bills, transfers, card payments and paychecks don't count. Tap **This week's purchases** to see the list and change how any one counts.
+- **Bills** are marked paid when a matching payment shows up (same amount, or a similar amount with the bill's name in it, within 4 days of the due date).
+- **Paychecks** that land a day or two early, or late on payday, are counted on payday.
+
+If you have a "credit card payment" bill, remove it: card purchases already count as spending. A bank that needs you to sign in again is fixed in ClearBudget (Connect bank).
+
 When the app opens it checks this repo's latest GitHub Release. If there's a newer version, an **Update** banner appears; tap it and confirm Android's prompt.
 
 ## Install

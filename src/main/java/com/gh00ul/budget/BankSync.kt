@@ -72,8 +72,20 @@ object BankServer {
         repeat(20) {
             val response = request(url, key, "POST", "/v1/sync", JSONObject().apply { after?.let { put("start_after_item_id", it) } })
             val sync = response.optJSONObject("sync")
+            val banks = response.optJSONArray("items")?.let { items ->
+                (0 until items.length()).mapNotNull { items.optJSONObject(it) }.associate { it.optString("item_id") to it.optString("institution_name") }
+            }.orEmpty()
             sync?.optJSONArray("errors")?.let { list ->
-                for (i in 0 until list.length()) list.optJSONObject(i)?.optString("message")?.takeIf { it.isNotBlank() }?.let { errors += it }
+                for (i in 0 until list.length()) {
+                    val e = list.optJSONObject(i) ?: continue
+                    val name = banks[e.optString("item_id")]?.takeIf { it.isNotBlank() } ?: "Your bank"
+                    errors += when (e.optString("code")) {
+                        "ITEM_LOGIN_REQUIRED" -> "$name needs you to sign in again. Open ClearBudget and tap Connect bank " +
+                            "to fix it; until then, new transactions won't come in."
+                        "SYNC_IN_PROGRESS" -> continue // ClearBudget is syncing it right now; the data is still fine
+                        else -> "$name: " + (e.optString("message").takeIf { it.isNotBlank() } ?: "sync failed. Try again later.")
+                    }
+                }
             }
             val next = if (sync == null || sync.isNull("next_item_id")) null
             else sync.optString("next_item_id").takeIf { it.isNotBlank() && it != after }
@@ -199,7 +211,7 @@ class BankStore(context: Context) {
 
     val accounts: List<BankAccount>
         get() = cachedAccounts ?: runCatching {
-            val list = JSONArray(prefs.getString("accounts", "[]"))
+            val list = JSONArray(prefs.getString("accounts", null) ?: "[]")
             (0 until list.length()).mapNotNull { accountFromJson(list.getJSONObject(it)) }
         }.getOrDefault(emptyList()).also { cachedAccounts = it }
 
@@ -207,7 +219,7 @@ class BankStore(context: Context) {
 
     val txns: List<BankTxn>
         get() = cachedTxns ?: runCatching {
-            val list = JSONArray(prefs.getString("txns", "[]"))
+            val list = JSONArray(prefs.getString("txns", null) ?: "[]")
             (0 until list.length()).mapNotNull { i ->
                 val t = list.getJSONObject(i)
                 runCatching {
@@ -220,7 +232,7 @@ class BankStore(context: Context) {
     // Choices made on a transaction: "spend", "skip", or "bill:<bill name>".
     val overrides: Map<String, String>
         get() = cachedOverrides ?: runCatching {
-            val json = JSONObject(prefs.getString("overrides", "{}"))
+            val json = JSONObject(prefs.getString("overrides", null) ?: "{}")
             json.keys().asSequence().associateWith { json.getString(it) }
         }.getOrDefault(emptyMap()).also { cachedOverrides = it }
 
