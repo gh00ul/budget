@@ -7,6 +7,20 @@
         <item name="android:windowBackground">@color/background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">true</item>
+        <item name="android:alertDialogTheme">@style/AppDialog</item>
+    </style>
+
+    <!-- Pop-up dialogs: rounded corners, sentence-case buttons. -->
+    <style name="AppDialog" parent="@android:style/Theme.Material.Light.Dialog.Alert">
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:windowBackground">@drawable/dialog_bg</item>
+        <item name="android:buttonBarButtonStyle">@style/DialogButton</item>
+    </style>
+
+    <style name="DialogButton" parent="@android:style/Widget.Material.Button.Borderless.Colored">
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
     </style>
 
     <!-- Full-screen, see-through window for the slide-up "add / edit bill" sheet. -->
@@ -18,14 +32,50 @@
         <item name="android:windowAnimationStyle">@null</item>
     </style>
 
-    <!-- Rounded section on the page background. -->
+    <!-- Rounded section on the page background. Padding is set per side (not android:padding) so a
+         layout can still override just the horizontal or vertical padding. -->
     <style name="Card">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginBottom">12dp</item>
         <item name="android:background">@drawable/card</item>
         <item name="android:orientation">vertical</item>
-        <item name="android:padding">16dp</item>
+        <item name="android:paddingHorizontal">16dp</item>
+        <item name="android:paddingVertical">16dp</item>
+    </style>
+
+    <!-- Small half-width card with a label and a number (End of month, Cushion). -->
+    <style name="Tile" parent="Card">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_marginBottom">0dp</item>
+        <item name="android:paddingVertical">14dp</item>
+    </style>
+
+    <style name="TileLabel">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:textSize">13sp</item>
+    </style>
+
+    <style name="TileValue" parent="Money">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">2dp</item>
+        <item name="android:autoSizeMaxTextSize">20sp</item>
+        <item name="android:autoSizeMinTextSize">12sp</item>
+        <item name="android:autoSizeTextType">uniform</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:textColor">@color/text</item>
+        <item name="android:textSize">20sp</item>
+    </style>
+
+    <!-- Numbers: medium weight with equal-width digits so columns line up. -->
+    <style name="Money">
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:fontFeatureSettings">tnum</item>
     </style>
 
     <style name="PageTitle">
@@ -56,11 +106,11 @@
         <item name="android:layout_marginStart">8dp</item>
         <item name="android:layout_marginTop">4dp</item>
         <item name="android:layout_marginBottom">8dp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
         <item name="android:letterSpacing">0.06</item>
         <item name="android:textAllCaps">true</item>
         <item name="android:textColor">@color/text_secondary</item>
         <item name="android:textSize">12sp</item>
-        <item name="android:textStyle">bold</item>
     </style>
 
     <style name="Divider">
@@ -79,14 +129,35 @@
         <item name="android:orientation">horizontal</item>
     </style>
 
+    <!-- The label keeps its full width; the value takes what's left and is cut off with "…" if needed. -->
+    <style name="GlanceLabel">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:textColor">@color/text</item>
+        <item name="android:textSize">16sp</item>
+    </style>
+
+    <style name="GlanceValue">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginStart">12dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:gravity">end</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:textColor">@color/text</item>
+        <item name="android:textSize">15sp</item>
+    </style>
+
     <!-- Round tinted icon at the start of a row. -->
     <style name="RowIcon">
-        <item name="android:layout_width">36dp</item>
-        <item name="android:layout_height">36dp</item>
+        <item name="android:layout_width">40dp</item>
+        <item name="android:layout_height">40dp</item>
         <item name="android:layout_marginEnd">12dp</item>
         <item name="android:background">@drawable/icon_circle</item>
         <item name="android:importantForAccessibility">no</item>
-        <item name="android:padding">8dp</item>
+        <item name="android:padding">10dp</item>
         <item name="android:tint">@color/chip_text</item>
     </style>
 
@@ -115,20 +186,25 @@
         <item name="android:textSize">16sp</item>
     </style>
 
-    <style name="GlanceValue">
+    <!-- Small label above a field in the bill sheet. -->
+    <style name="FieldLabel">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_marginStart">8dp</item>
-        <item name="android:gravity">end</item>
-        <item name="android:textColor">@color/text</item>
-        <item name="android:textSize">15sp</item>
+        <item name="android:layout_marginStart">4dp</item>
+        <item name="android:layout_marginTop">12dp</item>
+        <item name="android:layout_marginBottom">4dp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:textSize">12sp</item>
     </style>
 
-    <!-- Filled, rounded text box. -->
+    <!-- Outlined, rounded text box. -->
     <style name="Input">
-        <item name="android:layout_height">48dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:minHeight">48dp</item>
         <item name="android:background">@drawable/input_bg</item>
         <item name="android:paddingHorizontal">14dp</item>
+        <item name="android:paddingVertical">10dp</item>
         <item name="android:textColor">@color/text</item>
         <item name="android:textColorHint">@color/hint</item>
         <item name="android:textSize">16sp</item>
@@ -137,7 +213,8 @@
     <!-- "$" box that holds a borderless EditText. -->
     <style name="MoneyBox">
         <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">48dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:minHeight">48dp</item>
         <item name="android:addStatesFromChildren">true</item>
         <item name="android:background">@drawable/input_bg</item>
         <item name="android:gravity">center_vertical</item>
@@ -147,12 +224,14 @@
 
     <style name="MoneyInput">
         <item name="android:layout_width">0dp</item>
-        <item name="android:layout_height">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_weight">1</item>
         <item name="android:background">@null</item>
         <item name="android:gravity">start|center_vertical</item>
         <item name="android:hint">0.00</item>
+        <item name="android:maxLength">12</item>
         <item name="android:paddingStart">6dp</item>
+        <item name="android:paddingVertical">10dp</item>
         <item name="android:textColor">@color/text</item>
         <item name="android:textColorHint">@color/hint</item>
         <item name="android:textSize">16sp</item>
@@ -170,12 +249,12 @@
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">48dp</item>
         <item name="android:background">@drawable/button_green</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
         <item name="android:minWidth">72dp</item>
         <item name="android:paddingHorizontal">20dp</item>
         <item name="android:stateListAnimator">@null</item>
         <item name="android:textAllCaps">false</item>
         <item name="android:textColor">@android:color/white</item>
         <item name="android:textSize">16sp</item>
-        <item name="android:textStyle">bold</item>
     </style>
 </resources>

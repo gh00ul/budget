@@ -12,7 +12,8 @@ import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.View
 
-// Line chart of the balance after each pay period, with the lowest point labeled.
+// Line chart of the balance after each pay period. Labels the final value, and the low point when the
+// balance actually dips (or goes negative).
 class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs) {
     private var labels: List<String> = emptyList()
     private var values: List<Double> = emptyList()
@@ -20,6 +21,7 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
 
     private val dp = resources.displayMetrics.density
     private val sp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 1f, resources.displayMetrics)
+    private val medium = Typeface.create("sans-serif-medium", Typeface.NORMAL)
 
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -30,6 +32,10 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val holePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = context.getColor(R.color.card) }
+    private val basePaint = Paint().apply {
+        strokeWidth = 1 * dp
+        color = context.getColor(R.color.divider)
+    }
     private val zeroPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 1 * dp
@@ -41,10 +47,10 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
         textAlign = Paint.Align.CENTER
         color = context.getColor(R.color.text_secondary)
     }
-    private val lowText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val valueText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = 12 * sp
         textAlign = Paint.Align.CENTER
-        typeface = Typeface.DEFAULT_BOLD
+        typeface = medium
     }
 
     fun setData(labels: List<String>, values: List<Double>, format: (Double) -> String) {
@@ -55,21 +61,24 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
     }
 
     override fun onDraw(canvas: Canvas) {
-        if (values.size < 2) return
+        if (values.size < 2 || width == 0) return
         val positive = context.getColor(R.color.positive)
         val negative = context.getColor(R.color.negative)
+        val textColor = context.getColor(R.color.text)
         val anyNegative = values.any { it < 0 }
         val color = if (anyNegative) negative else positive
 
         val left = 16 * dp
         val right = width - 16 * dp
-        val top = 26 * dp
+        val top = 30 * dp
         val bottom = height - 24 * dp
         val minV = minOf(0.0, values.min())
         val maxV = maxOf(values.max(), 0.0)
         val span = (maxV - minV).takeIf { it > 0 } ?: 1.0
         fun x(i: Int) = left + (right - left) * i / (values.size - 1)
         fun y(v: Double) = top + ((maxV - v) / span * (bottom - top)).toFloat()
+
+        canvas.drawLine(left, bottom, right, bottom, basePaint)
 
         val line = Path()
         values.forEachIndexed { i, v -> if (i == 0) line.moveTo(x(i), y(v)) else line.lineTo(x(i), y(v)) }
@@ -84,22 +93,33 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
         linePaint.color = color
         canvas.drawPath(line, linePaint)
 
+        val last = values.size - 1
         val low = values.indices.minBy { values[it] }
+        // Only call out the low point if the balance really dips somewhere in the middle, or goes negative.
+        val showLow = low in 1 until last || values[low] < 0
         dotPaint.color = color
         values.forEachIndexed { i, v ->
-            val radius = if (i == low) 6 * dp else 4 * dp
+            val radius = if (showLow && i == low) 6 * dp else 4 * dp
             canvas.drawCircle(x(i), y(v), radius, dotPaint)
             canvas.drawCircle(x(i), y(v), radius - 2 * dp, holePaint)
             canvas.drawText(labels.getOrElse(i) { "" }, x(i), height - 6 * dp, axisText)
         }
 
-        val label = "Low ${format(values[low])}"
-        lowText.color = if (values[low] < 0) negative else context.getColor(R.color.text)
-        val half = lowText.measureText(label) / 2
-        val lx = x(low).coerceIn(half, width - half)
-        val above = y(values[low]) - 12 * dp
-        val ly = if (above < lowText.textSize) y(values[low]) + 22 * dp else above
-        canvas.drawText(label, lx, ly, lowText)
+        valueText.color = if (values[last] < 0) negative else textColor
+        drawLabel(canvas, format(values[last]), x(last), y(values[last]))
+        if (showLow && low != last) {
+            valueText.color = if (values[low] < 0) negative else textColor
+            drawLabel(canvas, "Low ${format(values[low])}", x(low), y(values[low]))
+        }
+    }
+
+    // Draws a value label above its point (below it if there's no room), kept inside the view.
+    private fun drawLabel(canvas: Canvas, text: String, px: Float, py: Float) {
+        val half = valueText.measureText(text) / 2
+        val lx = if (2 * half >= width) width / 2f else px.coerceIn(half, width - half)
+        val above = py - 12 * dp
+        val ly = if (above < valueText.textSize) py + 22 * dp else above
+        canvas.drawText(text, lx, ly, valueText)
     }
 
     private fun withAlpha(color: Int, alpha: Int) = (color and 0x00FFFFFF) or (alpha shl 24)

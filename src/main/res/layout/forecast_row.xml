@@ -22,7 +22,7 @@
             android:layout_height="wrap_content"
             android:textAllCaps="true"
             android:textColor="@color/chip_text"
-            android:textSize="10sp"
+            android:textSize="11sp"
             android:textStyle="bold" />
 
         <TextView
@@ -67,10 +67,10 @@
 
         <TextView
             android:id="@+id/forecast_left"
+            style="@style/Money"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="17sp"
-            android:textStyle="bold" />
+            android:textSize="17sp" />
 
         <TextView
             android:layout_width="wrap_content"

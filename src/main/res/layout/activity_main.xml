@@ -25,17 +25,13 @@
                 android:padding="16dp">
 
                 <TextView
-                    android:id="@+id/today_label"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="4dp"
-                    android:layout_marginTop="4dp"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="14sp" />
+                    style="@style/PageTitle"
+                    android:layout_marginTop="24dp"
+                    android:text="Budget" />
 
                 <TextView
-                    style="@style/PageTitle"
-                    android:text="Budget" />
+                    android:id="@+id/today_label"
+                    style="@style/PageSubtitle" />
 
                 <!-- Only shown when a newer version is on GitHub -->
                 <LinearLayout
@@ -66,27 +62,46 @@
                         android:text="Update" />
                 </LinearLayout>
 
-                <!-- Safe to spend, with end of month and next payday underneath -->
+                <!-- Safe to spend. Tap for the full breakdown. -->
                 <LinearLayout
                     android:id="@+id/hero"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="12dp"
                     android:background="@drawable/hero_green"
+                    android:foreground="?android:attr/selectableItemBackground"
                     android:orientation="vertical"
                     android:padding="20dp">
 
-                    <TextView
-                        android:layout_width="wrap_content"
+                    <LinearLayout
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Safe to spend"
-                        android:textColor="#D9FFFFFF"
-                        android:textSize="15sp" />
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Safe to spend"
+                            android:textColor="#D9FFFFFF"
+                            android:textSize="15sp" />
+
+                        <ImageView
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:importantForAccessibility="no"
+                            android:src="@drawable/ic_info"
+                            android:tint="#CCFFFFFF" />
+                    </LinearLayout>
 
                     <TextView
                         android:id="@+id/hero_amount"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:fontFeatureSettings="tnum"
+                        android:letterSpacing="-0.02"
+                        android:maxLines="1"
                         android:textColor="@android:color/white"
                         android:textSize="44sp"
                         android:textStyle="bold" />
@@ -98,70 +113,47 @@
                         android:textColor="#E6FFFFFF"
                         android:textSize="14sp" />
 
-                    <!-- The math behind the number, e.g. "$750 pay − $424.48 for bills − $60 spent" -->
+                    <!-- The math behind the number, e.g. "$750 pay − $424.48 bills − $60 spent" -->
                     <TextView
                         android:id="@+id/hero_breakdown"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:textColor="#BFFFFFFF"
+                        android:layout_marginTop="4dp"
+                        android:textColor="#CCFFFFFF"
                         android:textSize="13sp" />
+                </LinearLayout>
 
-                    <View
-                        android:layout_width="match_parent"
-                        android:layout_height="1dp"
-                        android:layout_marginVertical="14dp"
-                        android:background="#33FFFFFF" />
+                <!-- End of month and Cushion -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="12dp"
+                    android:orientation="horizontal">
 
                     <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal">
+                        style="@style/Tile"
+                        android:layout_marginEnd="6dp">
 
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
+                        <TextView
+                            android:id="@+id/hero_end_label"
+                            style="@style/TileLabel" />
 
-                            <TextView
-                                android:id="@+id/hero_end_label"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:textColor="#CCFFFFFF"
-                                android:textSize="13sp" />
+                        <TextView
+                            android:id="@+id/hero_end"
+                            style="@style/TileValue" />
+                    </LinearLayout>
 
-                            <TextView
-                                android:id="@+id/hero_end"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:textColor="@android:color/white"
-                                android:textSize="20sp"
-                                android:textStyle="bold" />
-                        </LinearLayout>
+                    <LinearLayout
+                        style="@style/Tile"
+                        android:layout_marginStart="6dp">
 
-                        <LinearLayout
-                            android:id="@+id/hero_next_col"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
+                        <TextView
+                            style="@style/TileLabel"
+                            android:text="Cushion" />
 
-                            <TextView
-                                android:id="@+id/hero_next_label"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:textColor="#CCFFFFFF"
-                                android:textSize="13sp" />
-
-                            <TextView
-                                android:id="@+id/hero_next"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:textColor="@android:color/white"
-                                android:textSize="20sp"
-                                android:textStyle="bold" />
-                        </LinearLayout>
+                        <TextView
+                            android:id="@+id/hero_cushion"
+                            style="@style/TileValue" />
                     </LinearLayout>
                 </LinearLayout>
 
@@ -199,12 +191,12 @@
 
                     <TextView
                         android:id="@+id/balance_value"
+                        style="@style/Money"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
                         android:textColor="@color/text"
-                        android:textSize="18sp"
-                        android:textStyle="bold" />
+                        android:textSize="16sp" />
 
                     <ImageView
                         android:layout_width="18dp"
@@ -229,7 +221,7 @@
                             android:src="@drawable/ic_tab_paydays" />
 
                         <TextView
-                            style="@style/Label"
+                            style="@style/GlanceLabel"
                             android:text="Next payday" />
 
                         <TextView
@@ -241,7 +233,7 @@
 
                     <View
                         style="@style/Divider"
-                        android:layout_marginStart="48dp" />
+                        android:layout_marginStart="52dp" />
 
                     <LinearLayout
                         android:id="@+id/glance_bill_row"
@@ -252,7 +244,7 @@
                             android:src="@drawable/ic_bell" />
 
                         <TextView
-                            style="@style/Label"
+                            style="@style/GlanceLabel"
                             android:text="Next bill" />
 
                         <TextView
@@ -264,7 +256,7 @@
 
                     <View
                         style="@style/Divider"
-                        android:layout_marginStart="48dp" />
+                        android:layout_marginStart="52dp" />
 
                     <LinearLayout
                         android:id="@+id/glance_due_row"
@@ -275,7 +267,7 @@
                             android:src="@drawable/ic_tab_bills" />
 
                         <TextView
-                            style="@style/Label"
+                            style="@style/GlanceLabel"
                             android:text="Still to pay" />
 
                         <TextView
@@ -317,14 +309,14 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Balance after each payday"
+                        android:text="Balance after each payday's bills"
                         android:textColor="@color/text_secondary"
                         android:textSize="13sp" />
 
                     <com.gh00ul.budget.BalanceChart
                         android:id="@+id/chart"
                         android:layout_width="match_parent"
-                        android:layout_height="150dp"
+                        android:layout_height="160dp"
                         android:layout_marginTop="6dp" />
                 </LinearLayout>
 
@@ -352,14 +344,14 @@
                         <TextView
                             android:id="@+id/end_label"
                             style="@style/Label"
-                            android:textStyle="bold" />
+                            android:fontFamily="sans-serif-medium" />
 
                         <TextView
                             android:id="@+id/end_balance"
+                            style="@style/Money"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:textSize="20sp"
-                            android:textStyle="bold" />
+                            android:textSize="20sp" />
                     </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
@@ -425,12 +417,11 @@
                             android:textColor="@color/text"
                             android:textSize="16sp" />
 
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Tap + to add your first one"
-                            android:textColor="@color/text_secondary"
-                            android:textSize="14sp" />
+                        <Button
+                            android:id="@+id/add_first_bill"
+                            style="@style/GreenButton"
+                            android:layout_marginTop="14dp"
+                            android:text="Add a bill" />
                     </LinearLayout>
                 </LinearLayout>
 
@@ -480,7 +471,7 @@
                             android:src="@drawable/ic_wallet" />
 
                         <TextView
-                            style="@style/Label"
+                            style="@style/GlanceLabel"
                             android:text="Weekly income" />
 
                         <TextView
@@ -492,7 +483,7 @@
 
                     <View
                         style="@style/Divider"
-                        android:layout_marginStart="48dp" />
+                        android:layout_marginStart="52dp" />
 
                     <LinearLayout
                         android:id="@+id/payday_row"
@@ -503,7 +494,7 @@
                             android:src="@drawable/ic_tab_paydays" />
 
                         <TextView
-                            style="@style/Label"
+                            style="@style/GlanceLabel"
                             android:text="Payday" />
 
                         <TextView
@@ -520,7 +511,7 @@
                     android:layout_marginStart="8dp"
                     android:layout_marginEnd="8dp"
                     android:layout_marginBottom="20dp"
-                    android:text="You get paid this amount every week on this day. To change a single paycheck, tap it on the Paydays tab."
+                    android:text="You get paid this amount every week on this day. To change one paycheck, tap it on the Paydays tab (or tap Safe to spend for this week's)."
                     android:textColor="@color/text_secondary"
                     android:textSize="13sp" />
 
@@ -538,7 +529,7 @@
 
                         <ImageView
                             style="@style/RowIcon"
-                            android:src="@drawable/ic_tab_settings" />
+                            android:src="@drawable/ic_update" />
 
                         <LinearLayout
                             android:layout_width="0dp"
@@ -564,6 +555,15 @@
                         <ImageView style="@style/ChevronIcon" />
                     </LinearLayout>
                 </LinearLayout>
+
+                <TextView
+                    android:id="@+id/version_footer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:gravity="center"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp" />
             </LinearLayout>
         </ScrollView>
 
@@ -582,7 +582,7 @@
             android:minHeight="52dp"
             android:orientation="horizontal"
             android:paddingStart="16dp"
-            android:paddingEnd="6dp"
+            android:paddingEnd="4dp"
             android:visibility="gone">
 
             <TextView
@@ -600,11 +600,14 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:background="?android:attr/selectableItemBackground"
-                android:padding="10dp"
-                android:text="UNDO"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center"
+                android:minWidth="64dp"
+                android:minHeight="48dp"
+                android:paddingHorizontal="12dp"
+                android:text="Undo"
                 android:textColor="#81C784"
-                android:textSize="14sp"
-                android:textStyle="bold" />
+                android:textSize="15sp" />
         </LinearLayout>
 
         <!-- Add bill (Bills tab only) -->

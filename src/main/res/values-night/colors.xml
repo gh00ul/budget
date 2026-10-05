@@ -5,15 +5,30 @@
     <color name="background">#121413</color>
     <color name="card">#1E2120</color>
     <color name="input">#2A2E2C</color>
+    <color name="outline">#6F7672</color>
     <color name="divider">#2C302E</color>
     <color name="text">#E8EAE9</color>
     <color name="text_secondary">#A0A5A3</color>
-    <color name="hint">#6F7472</color>
+    <color name="hint">#8A908D</color>
     <color name="positive">#81C784</color>
     <color name="negative">#EF5350</color>
     <color name="warning">#FFB74D</color>
     <color name="chip">#1F3322</color>
     <color name="chip_text">#81C784</color>
+    <color name="nav_indicator">#2C4A30</color>
     <color name="delete_bg">#3A2222</color>
     <color name="snackbar">#3A3F3D</color>
+
+    <color name="avatar_bg_1">#1F3A24</color>
+    <color name="avatar_fg_1">#A5D6A7</color>
+    <color name="avatar_bg_2">#1C2F45</color>
+    <color name="avatar_fg_2">#90CAF9</color>
+    <color name="avatar_bg_3">#3D2E14</color>
+    <color name="avatar_fg_3">#FFCC80</color>
+    <color name="avatar_bg_4">#33213D</color>
+    <color name="avatar_fg_4">#CE93D8</color>
+    <color name="avatar_bg_5">#3D2220</color>
+    <color name="avatar_fg_5">#EF9A9A</color>
+    <color name="avatar_bg_6">#173833</color>
+    <color name="avatar_fg_6">#80CBC4</color>
 </resources>

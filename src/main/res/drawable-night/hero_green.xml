@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Highlight behind the selected tab's icon. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="@color/nav_indicator" />
+    <gradient android:angle="315" android:endColor="#1F5A25" android:startColor="#123A17" />
     <corners android:radius="16dp" />
 </shape>

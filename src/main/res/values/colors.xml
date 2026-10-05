@@ -1,20 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Light mode. Dark mode versions live in values-night/colors.xml. -->
+<!-- Light mode. Dark mode versions live in values-night/colors.xml. Text colors meet WCAG AA (4.5:1). -->
 <resources>
     <color name="brand">#2E7D32</color>
     <color name="accent">#2E7D32</color>
     <color name="background">#F2F4F3</color>
     <color name="card">#FFFFFF</color>
     <color name="input">#F1F3F2</color>
-    <color name="divider">#EEEEEE</color>
+    <color name="outline">#858B88</color>
+    <color name="divider">#E3E7E5</color>
     <color name="text">#212121</color>
-    <color name="text_secondary">#757575</color>
-    <color name="hint">#9E9E9E</color>
+    <color name="text_secondary">#5F6662</color>
+    <color name="hint">#6F7672</color>
     <color name="positive">#2E7D32</color>
     <color name="negative">#C62828</color>
-    <color name="warning">#E65100</color>
+    <color name="warning">#B84D00</color>
     <color name="chip">#E8F5E9</color>
     <color name="chip_text">#2E7D32</color>
+    <color name="nav_indicator">#C8E6C9</color>
     <color name="delete_bg">#FDECEA</color>
     <color name="snackbar">#2F3331</color>
+
+    <!-- Bill initials: soft background with a dark matching letter. -->
+    <color name="avatar_bg_1">#DCEFD9</color>
+    <color name="avatar_fg_1">#1B5E20</color>
+    <color name="avatar_bg_2">#DCE8F7</color>
+    <color name="avatar_fg_2">#0D47A1</color>
+    <color name="avatar_bg_3">#FCE8CC</color>
+    <color name="avatar_fg_3">#7A3E00</color>
+    <color name="avatar_bg_4">#EEDDF3</color>
+    <color name="avatar_fg_4">#5E1A7A</color>
+    <color name="avatar_bg_5">#F9DEDC</color>
+    <color name="avatar_fg_5">#8C1D18</color>
+    <color name="avatar_bg_6">#D3EEEA</color>
+    <color name="avatar_fg_6">#00574B</color>
 </resources>
