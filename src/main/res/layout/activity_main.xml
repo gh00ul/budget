@@ -61,6 +61,30 @@
                         android:textSize="14sp" />
                 </LinearLayout>
 
+                <!-- Safe to spend: the lowest the balance gets this month -->
+                <LinearLayout style="@style/Card">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Safe to spend now"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="14sp" />
+
+                    <TextView
+                        android:id="@+id/safe_amount"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="30sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/safe_note"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="13sp" />
+                </LinearLayout>
+
                 <LinearLayout style="@style/Card">
 
                     <LinearLayout
@@ -263,40 +287,58 @@
                             android:hint="Name"
                             android:inputType="textCapWords" />
 
-                        <EditText
-                            android:id="@+id/bill_day"
-                            style="@style/Input"
-                            android:layout_width="56dp"
-                            android:layout_marginStart="6dp"
-                            android:gravity="center"
-                            android:hint="Day"
-                            android:inputType="number"
-                            android:maxLength="2"
-                            android:paddingHorizontal="4dp" />
+                        <LinearLayout
+                            style="@style/MoneyBox"
+                            android:layout_width="120dp"
+                            android:layout_marginStart="8dp">
 
-                        <EditText
-                            android:id="@+id/bill_amount"
-                            style="@style/Input"
-                            android:layout_width="84dp"
-                            android:layout_marginStart="6dp"
-                            android:hint="$"
-                            android:inputType="numberDecimal" />
+                            <TextView style="@style/DollarSign" />
 
-                        <Button
-                            android:id="@+id/add_button"
-                            style="@style/GreenButton"
-                            android:layout_marginStart="6dp"
-                            android:minWidth="60dp"
-                            android:text="Add" />
+                            <EditText
+                                android:id="@+id/bill_amount"
+                                style="@style/MoneyInput"
+                                android:inputType="numberDecimal" />
+                        </LinearLayout>
                     </LinearLayout>
 
-                    <TextView
-                        android:layout_width="wrap_content"
+                    <LinearLayout
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:text="Day = day of the month it's due (1–31)"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="12sp" />
+                        android:layout_marginTop="8dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <FrameLayout
+                            android:layout_width="0dp"
+                            android:layout_height="44dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/input_bg">
+
+                            <Spinner
+                                android:id="@+id/bill_freq"
+                                android:layout_width="match_parent"
+                                android:layout_height="match_parent" />
+                        </FrameLayout>
+
+                        <!-- Tapping opens a calendar to pick the next due date -->
+                        <TextView
+                            android:id="@+id/bill_date"
+                            style="@style/Input"
+                            android:layout_width="0dp"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1"
+                            android:ellipsize="end"
+                            android:gravity="center_vertical"
+                            android:hint="Next due date"
+                            android:singleLine="true" />
+                    </LinearLayout>
+
+                    <Button
+                        android:id="@+id/add_button"
+                        style="@style/GreenButton"
+                        android:layout_width="match_parent"
+                        android:layout_marginTop="10dp"
+                        android:text="Add bill" />
                 </LinearLayout>
 
                 <LinearLayout style="@style/Card">
