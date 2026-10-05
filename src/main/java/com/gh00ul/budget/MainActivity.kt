@@ -137,6 +137,11 @@ class MainActivity : Activity() {
     private val bills = mutableListOf<Bill>()
     private var balance = 0.0
     private var balanceUpdated: LocalDate? = null
+    // The first balance entered in the current pay period. Later balances are compared to it to work out
+    // how much has been spent since payday.
+    private var weekStart: LocalDate? = null // the payday that began the period
+    private var weekStartBalance = 0.0
+    private var weekStartTaken: LocalDate? = null // the day that balance was entered
     private var weeklyIncome = 0.0
     private var payday = DayOfWeek.FRIDAY
     // One-off paycheck amounts (overtime, short week) that replace the weekly income on that date.
@@ -173,6 +178,7 @@ class MainActivity : Activity() {
     private lateinit var hero: View
     private lateinit var heroAmount: TextView
     private lateinit var heroNote: TextView
+    private lateinit var heroBreakdown: TextView
     private lateinit var heroEndLabel: TextView
     private lateinit var heroEnd: TextView
     private lateinit var heroNextCol: View
@@ -210,6 +216,7 @@ class MainActivity : Activity() {
         hero = findViewById(R.id.hero)
         heroAmount = findViewById(R.id.hero_amount)
         heroNote = findViewById(R.id.hero_note)
+        heroBreakdown = findViewById(R.id.hero_breakdown)
         heroEndLabel = findViewById(R.id.hero_end_label)
         heroEnd = findViewById(R.id.hero_end)
         heroNextCol = findViewById(R.id.hero_next_col)
@@ -353,15 +360,17 @@ class MainActivity : Activity() {
         incomeValue.text = money.format(weeklyIncome)
         paydayValue.text = payday.getDisplayName(TextStyle.FULL, Locale.getDefault())
         balanceValue.text = money.format(balance)
-        val updated = balanceUpdated
-        val days = updated?.let { ChronoUnit.DAYS.between(it, LocalDate.now()) }
-        balanceUpdatedView.text = when (days) {
-            null -> "Tap to update"
-            0L -> "Updated today"
-            1L -> "Updated yesterday"
+        val today = LocalDate.now()
+        val days = balanceUpdated?.let { ChronoUnit.DAYS.between(it, today) }
+        val trackingThisWeek = weekStart == lastPayday(today)
+        balanceUpdatedView.text = when {
+            days == null -> "Tap to update"
+            !trackingThisWeek -> "Update to track this week's spending"
+            days == 0L -> "Updated today"
+            days == 1L -> "Updated yesterday"
             else -> "Updated $days days ago"
         }
-        balanceUpdatedView.setTextColor(if (days == null || days >= 3) warning else secondary)
+        balanceUpdatedView.setTextColor(if (days == null || !trackingThisWeek || days >= 3) warning else secondary)
     }
 
     private fun showBills() {
@@ -416,7 +425,6 @@ class MainActivity : Activity() {
 
         forecastList.removeAllViews()
         var running = balance
-        var leftAfterNextPayday = 0.0
         val chartLabels = mutableListOf<String>()
         val chartValues = mutableListOf<Double>()
         periodStarts.forEachIndexed { i, start ->
@@ -429,7 +437,6 @@ class MainActivity : Activity() {
             val isPayday = i > 0
             val paycheck = if (isPayday) paycheckOn(start) else 0.0
             running += paycheck - billsDue
-            if (i == 1) leftAfterNextPayday = running
             chartLabels += if (isPayday) start.dayOfMonth.toString() else "Now"
             chartValues += running
 
@@ -477,23 +484,43 @@ class MainActivity : Activity() {
         chartCard.visibility = if (chartValues.size >= 2) View.VISIBLE else View.GONE
         chart.setData(chartLabels, chartValues) { compactMoney(it) }
 
-        // Summary. Safe to spend = what's in the bank now minus the bills due before the next paycheck.
-        val safe = chartValues.first()
-        val short = safe < 0
-        hero.setBackgroundResource(if (short) R.drawable.hero_red else R.drawable.hero_green)
-        animateHero(if (short) 0.0 else safe)
-        heroNote.text = if (short) {
-            "Bills due before ${nextPayday.format(dayFormat)} are ${money.format(-safe)} more than your balance"
+        // Summary. Safe to spend is this week's spending money: the paycheck minus a fair weekly share of
+        // every bill (rent, yearly bills, ... spread evenly), minus what's been spent since payday. It's
+        // never more than what's in the bank after the bills due before the next paycheck. Anything else
+        // in the account is cushion.
+        val periodPayday = lastPayday(today)
+        val pay = paycheckOn(periodPayday)
+        val billsPerWeek = bills.sumOf { it.amount * it.freq.perMonth } * 12 / 52
+        val spendingMoney = pay - billsPerWeek
+        val taken = weekStartTaken
+        val spent = if (weekStart == periodPayday && taken != null) {
+            // A drop in the balance that isn't explained by bills coming due counts as spending.
+            val billsPaid = bills.sumOf { it.amount * it.dueDates(taken, today).size }
+            maxOf(0.0, weekStartBalance - balance - billsPaid)
         } else {
-            "Your balance minus bills due before ${nextPayday.format(dayFormat)}"
+            null // no balance entered since payday yet, so spending can't be worked out
+        }
+        val inBank = chartValues.first() // balance minus bills due before the next paycheck
+        val fromPay = spendingMoney - (spent ?: 0.0)
+        val safe = minOf(fromPay, inBank)
+        val until = nextPayday.format(dayFormat)
+        hero.setBackgroundResource(if (safe < 0) R.drawable.hero_red else R.drawable.hero_green)
+        animateHero(maxOf(0.0, safe))
+        heroNote.text = when {
+            inBank < 0 -> "Bills due before $until are ${money.format(-inBank)} more than your balance"
+            spendingMoney < 0 -> "Your bills cost ${money.format(-spendingMoney)} more than your weekly pay"
+            fromPay < 0 -> "You're ${money.format(-fromPay)} over this week's spending money"
+            inBank < fromPay -> "Limited by your bank balance until $until"
+            else -> "Your spending money until $until"
+        }
+        heroBreakdown.text = buildString {
+            append("${shortMoney(pay)} pay − ${shortMoney(billsPerWeek)} for bills")
+            if (spent != null) append(" − ${shortMoney(spent)} spent")
         }
         heroEndLabel.text = "End of $monthName"
         heroEnd.text = bigMoney(running)
-        heroNextCol.visibility = if (paydays.isEmpty()) View.INVISIBLE else View.VISIBLE
-        if (paydays.isNotEmpty()) {
-            heroNextLabel.text = "After ${paydays.first().format(shortDate)} payday"
-            heroNext.text = bigMoney(leftAfterNextPayday)
-        }
+        heroNextLabel.text = "Cushion"
+        heroNext.text = bigMoney(inBank - maxOf(0.0, safe))
 
         glancePayday.text = "${nextPayday.format(shortDate)} · +${money.format(paycheckOn(nextPayday))}"
         val nextBill = bills.minByOrNull { it.nextDue(today) }
@@ -534,11 +561,19 @@ class MainActivity : Activity() {
     // ---------- Editing ----------
 
     private fun editBalance() = askAmount("Bank balance", "What's in your account right now?", balance, signed = true) {
+        val today = LocalDate.now()
         balance = it ?: 0.0
-        balanceUpdated = LocalDate.now()
+        balanceUpdated = today
+        if (weekStart != lastPayday(today)) {
+            weekStart = lastPayday(today)
+            weekStartBalance = balance
+            weekStartTaken = today
+        }
         save()
         refresh()
     }
+
+    private fun lastPayday(today: LocalDate): LocalDate = today.with(TemporalAdjusters.previousOrSame(payday))
 
     private fun editIncome() = askAmount("Weekly income", "Your usual paycheck each week.", weeklyIncome) {
         weeklyIncome = it ?: 0.0
@@ -821,6 +856,10 @@ class MainActivity : Activity() {
         return SpannableString(text).apply { setSpan(RelativeSizeSpan(0.6f), dot, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
     }
 
+    // "$750" for whole dollars, "$424.48" otherwise.
+    private fun shortMoney(amount: Double): String =
+        if (amount == Math.rint(amount)) compactMoney(amount) else money.format(amount)
+
     // "$1,045" for chart labels.
     private fun compactMoney(amount: Double): String =
         (money.clone() as NumberFormat).apply { maximumFractionDigits = 0 }.format(amount)
@@ -855,12 +894,17 @@ class MainActivity : Activity() {
             bills.add(Bill(bill.getString("name"), bill.getDouble("amount"), freq, date))
         }
 
-        val today = LocalDate.now()
+        // Keep this pay period's paycheck change (it sets this week's spending money); drop older ones.
+        val periodStart = lastPayday(LocalDate.now())
         val changes = JSONObject(prefs.getString("paycheck_changes", "{}"))
         for (key in changes.keys()) {
             val date = runCatching { LocalDate.parse(key) }.getOrNull() ?: continue
-            if (!date.isBefore(today)) paycheckChanges[date] = changes.getDouble(key) // drop past weeks
+            if (!date.isBefore(periodStart)) paycheckChanges[date] = changes.getDouble(key)
         }
+
+        weekStart = prefs.getString("week_start", null)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        weekStartBalance = prefs.getString("week_start_balance", null)?.toDoubleOrNull() ?: 0.0
+        weekStartTaken = prefs.getString("week_start_taken", null)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
     }
 
     private fun save() {
@@ -880,6 +924,9 @@ class MainActivity : Activity() {
             .putInt("payday", payday.value)
             .putString("bills", saved.toString())
             .putString("paycheck_changes", changes.toString())
+            .putString("week_start", weekStart?.toString())
+            .putString("week_start_balance", weekStartBalance.toString())
+            .putString("week_start_taken", weekStartTaken?.toString())
             .apply()
     }
 

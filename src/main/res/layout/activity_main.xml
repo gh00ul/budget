@@ -98,6 +98,15 @@
                         android:textColor="#E6FFFFFF"
                         android:textSize="14sp" />
 
+                    <!-- The math behind the number, e.g. "$750 pay − $424.48 for bills − $60 spent" -->
+                    <TextView
+                        android:id="@+id/hero_breakdown"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:textColor="#BFFFFFFF"
+                        android:textSize="13sp" />
+
                     <View
                         android:layout_width="match_parent"
                         android:layout_height="1dp"
