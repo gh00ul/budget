@@ -975,6 +975,7 @@ class MainActivity : Activity() {
         closeSheet = { close() }
 
         saveButton.setOnClickListener {
+            if (closing) return@setOnClickListener // a second tap while the sheet is closing
             val name = nameBox.text.toString().trim()
             val amount = parseMoney(amountBox.text.toString())
             val date = pickedDate ?: existing?.date
@@ -996,7 +997,9 @@ class MainActivity : Activity() {
                 }
             }
         }
-        deleteButton.setOnClickListener { close { if (existing != null) deleteBill(existing) } }
+        deleteButton.setOnClickListener {
+            if (!closing) close { if (existing != null) deleteBill(existing) }
+        }
 
         // Slide up from the bottom; the dimmed area only closes the sheet once it's fully open.
         scrim.alpha = 0f
