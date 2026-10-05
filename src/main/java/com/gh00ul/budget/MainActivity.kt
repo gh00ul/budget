@@ -7,13 +7,15 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
-import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.text.Editable
 import android.text.InputType
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.text.TextWatcher
 import android.view.View
 import android.view.WindowInsets
@@ -42,10 +44,6 @@ import java.util.Locale
 import kotlin.concurrent.thread
 
 private const val REPO = "gh00ul/budget"
-private const val GREEN = 0xFF2E7D32.toInt()
-private const val RED = 0xFFC62828.toInt()
-private const val ORANGE = 0xFFE65100.toInt()
-private const val GRAY = 0xFF757575.toInt()
 
 class MainActivity : Activity() {
     // day = day of the month the bill is due (1-31).
@@ -63,15 +61,23 @@ class MainActivity : Activity() {
     private var billsOpen = false
     private var updateUrl: String? = null
 
+    // Theme colors (they change in dark mode).
+    private val positive by lazy { getColor(R.color.positive) }
+    private val negative by lazy { getColor(R.color.negative) }
+    private val warning by lazy { getColor(R.color.warning) }
+    private val secondary by lazy { getColor(R.color.text_secondary) }
+    private val textColor by lazy { getColor(R.color.text) }
+
     private lateinit var billList: LinearLayout
     private lateinit var billsBody: View
     private lateinit var billsToggle: TextView
     private lateinit var billsNext: TextView
     private lateinit var billsTotalView: TextView
     private lateinit var forecastList: LinearLayout
-    private lateinit var endCard: View
-    private lateinit var endLabel: TextView
-    private lateinit var endBalance: TextView
+    private lateinit var hero: View
+    private lateinit var heroLabel: TextView
+    private lateinit var heroAmount: TextView
+    private lateinit var heroNext: TextView
     private lateinit var updateStatus: TextView
     private lateinit var updateButton: Button
 
@@ -86,9 +92,10 @@ class MainActivity : Activity() {
         billsNext = findViewById(R.id.bills_next)
         billsTotalView = findViewById(R.id.bills_total)
         forecastList = findViewById(R.id.forecast_list)
-        endCard = findViewById(R.id.end_card)
-        endLabel = findViewById(R.id.end_label)
-        endBalance = findViewById(R.id.end_balance)
+        hero = findViewById(R.id.hero)
+        heroLabel = findViewById(R.id.hero_label)
+        heroAmount = findViewById(R.id.hero_amount)
+        heroNext = findViewById(R.id.hero_next)
         updateStatus = findViewById(R.id.update_status)
         updateButton = findViewById(R.id.update_button)
 
@@ -192,7 +199,7 @@ class MainActivity : Activity() {
             val daysLeft = daysUntilDue(bill)
             row.findViewById<TextView>(R.id.bill_row_due).apply {
                 text = "${ordinal(bill.day)} · ${dueIn(daysLeft)}"
-                setTextColor(if (daysLeft <= 3) ORANGE else GRAY)
+                setTextColor(if (daysLeft <= 3) warning else secondary)
             }
             row.findViewById<View>(R.id.bill_row_remove).setOnClickListener {
                 bills.remove(bill)
@@ -213,7 +220,7 @@ class MainActivity : Activity() {
         if (next != null) {
             val daysLeft = daysUntilDue(next)
             billsNext.text = "Next: ${next.name} ${money.format(next.amount)}, due ${dueIn(daysLeft)}"
-            billsNext.setTextColor(if (daysLeft <= 3) ORANGE else GRAY)
+            billsNext.setTextColor(if (daysLeft <= 3) warning else secondary)
         }
         recalculate()
     }
@@ -237,6 +244,7 @@ class MainActivity : Activity() {
 
         forecastList.removeAllViews()
         var running = balance
+        var leftAfterNextPayday = 0.0
         periodStarts.forEachIndexed { i, start ->
             val end = periodStarts.getOrNull(i + 1) ?: monthEnd.plusDays(1)
             val due = bills.filter {
@@ -247,29 +255,47 @@ class MainActivity : Activity() {
             val isPayday = i > 0
             val paycheck = if (isPayday) paycheckChanges[start] ?: weeklyIncome else 0.0
             running += paycheck - billsDue
+            if (i == 1) leftAfterNextPayday = running
 
             val row = layoutInflater.inflate(R.layout.forecast_row, forecastList, false)
-            row.findViewById<TextView>(R.id.forecast_title).text =
-                if (isPayday) "Payday · ${start.format(dayFormat)}" else "Today, before payday"
-            if (isPayday) {
-                row.findViewById<TextView>(R.id.forecast_paycheck_label).text =
-                    if (start in paycheckChanges) "Paycheck (changed)" else "Paycheck"
-                row.findViewById<TextView>(R.id.forecast_paycheck).text = "+" + money.format(paycheck)
-                row.setOnClickListener { editPaycheck(start) }
-            } else {
-                row.findViewById<View>(R.id.forecast_paycheck_row).visibility = View.GONE
+            row.findViewById<TextView>(R.id.chip_top).text =
+                if (isPayday) start.format(DateTimeFormatter.ofPattern("EEE")) else "Today"
+            row.findViewById<TextView>(R.id.chip_day).text = start.dayOfMonth.toString()
+            if (!isPayday) {
+                row.findViewById<View>(R.id.chip).setBackgroundResource(R.drawable.chip_today)
+                row.findViewById<TextView>(R.id.chip_top).setTextColor(secondary)
+                row.findViewById<TextView>(R.id.chip_day).setTextColor(textColor)
             }
-            row.findViewById<TextView>(R.id.forecast_bills_label).text =
-                if (due.isEmpty()) "No bills" else "Bills: " + due.joinToString { it.name }
-            row.findViewById<TextView>(R.id.forecast_bills).text =
-                if (due.isEmpty()) money.format(0) else "-" + money.format(billsDue)
+            row.findViewById<TextView>(R.id.forecast_title).text = if (isPayday) "Payday" else "Before payday"
+            row.findViewById<TextView>(R.id.forecast_detail).text = SpannableStringBuilder().apply {
+                if (isPayday) {
+                    append("+" + money.format(paycheck), ForegroundColorSpan(positive), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    append(if (start in paycheckChanges) " pay (changed) · " else " pay · ")
+                }
+                if (billsDue > 0) {
+                    append("-" + money.format(billsDue), ForegroundColorSpan(negative), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    append(" bills")
+                } else {
+                    append("no bills")
+                }
+            }
+            row.findViewById<TextView>(R.id.forecast_bill_names).apply {
+                text = due.joinToString { it.name }
+                visibility = if (due.isEmpty()) View.GONE else View.VISIBLE
+            }
             showMoney(row.findViewById(R.id.forecast_left), running)
+            if (isPayday) row.setOnClickListener { editPaycheck(start) }
             forecastList.addView(row)
         }
 
-        endLabel.text = "End of month (${monthEnd.format(DateTimeFormatter.ofPattern("MMM d"))})"
-        showMoney(endBalance, running)
-        endCard.backgroundTintList = ColorStateList.valueOf(if (running < 0) 0xFFFFEBEE.toInt() else 0xFFE8F5E9.toInt())
+        hero.setBackgroundResource(if (running < 0) R.drawable.hero_red else R.drawable.hero_green)
+        heroLabel.text = "End of ${monthEnd.month.getDisplayName(TextStyle.FULL, Locale.getDefault())}"
+        heroAmount.text = money.format(running)
+        heroNext.text = if (paydays.isEmpty()) {
+            "No more paydays this month"
+        } else {
+            "${money.format(leftAfterNextPayday)} left after bills on ${paydays.first().format(dayFormat)}"
+        }
     }
 
     private fun editPaycheck(date: LocalDate) {
@@ -315,7 +341,7 @@ class MainActivity : Activity() {
 
     private fun showMoney(view: TextView, amount: Double) {
         view.text = money.format(amount)
-        view.setTextColor(if (amount < 0) RED else GREEN)
+        view.setTextColor(if (amount < 0) negative else positive)
     }
 
     private fun ordinal(n: Int) = n.toString() + when {

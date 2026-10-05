@@ -1,19 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="green">#2E7D32</color>
-    <color name="background">#F2F4F3</color>
-    <color name="text">#212121</color>
-    <color name="text_secondary">#757575</color>
-
+    <!-- Dark mode version: values-night/themes.xml -->
     <style name="AppTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
-        <item name="android:colorPrimary">@color/green</item>
-        <item name="android:colorAccent">@color/green</item>
+        <item name="android:colorPrimary">@color/brand</item>
+        <item name="android:colorAccent">@color/accent</item>
         <item name="android:windowBackground">@color/background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">true</item>
     </style>
 
-    <!-- White rounded section on the gray background. -->
+    <!-- Rounded section on the page background. -->
     <style name="Card">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
@@ -31,9 +27,50 @@
         <item name="android:textStyle">bold</item>
     </style>
 
+    <style name="Label">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:textColor">@color/text</item>
+        <item name="android:textSize">16sp</item>
+    </style>
+
+    <!-- Filled, rounded text box. -->
+    <style name="Input">
+        <item name="android:layout_height">44dp</item>
+        <item name="android:background">@drawable/input_bg</item>
+        <item name="android:paddingHorizontal">12dp</item>
+        <item name="android:textColor">@color/text</item>
+        <item name="android:textColorHint">@color/hint</item>
+        <item name="android:textSize">16sp</item>
+    </style>
+
+    <!-- "$" box that holds a borderless EditText. -->
+    <style name="MoneyBox">
+        <item name="android:layout_width">150dp</item>
+        <item name="android:layout_height">44dp</item>
+        <item name="android:addStatesFromChildren">true</item>
+        <item name="android:background">@drawable/input_bg</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:paddingHorizontal">12dp</item>
+    </style>
+
+    <style name="MoneyInput">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:background">@null</item>
+        <item name="android:gravity">end|center_vertical</item>
+        <item name="android:hint">0.00</item>
+        <item name="android:textColor">@color/text</item>
+        <item name="android:textColorHint">@color/hint</item>
+        <item name="android:textSize">17sp</item>
+    </style>
+
     <style name="GreenButton">
         <item name="android:layout_width">wrap_content</item>
-        <item name="android:layout_height">40dp</item>
+        <item name="android:layout_height">44dp</item>
         <item name="android:background">@drawable/button_green</item>
         <item name="android:minWidth">72dp</item>
         <item name="android:paddingHorizontal">16dp</item>

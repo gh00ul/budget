@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="brand">#2E7D32</color>
+    <color name="accent">#81C784</color>
+    <color name="background">#121413</color>
+    <color name="card">#1E2120</color>
+    <color name="input">#2A2E2C</color>
+    <color name="divider">#2C302E</color>
+    <color name="text">#E8EAE9</color>
+    <color name="text_secondary">#A0A5A3</color>
+    <color name="hint">#6F7472</color>
+    <color name="positive">#81C784</color>
+    <color name="negative">#EF5350</color>
+    <color name="warning">#FFB74D</color>
+    <color name="chip">#1F3322</color>
+    <color name="chip_text">#81C784</color>
+</resources>

@@ -42,6 +42,6 @@
         android:paddingStart="12dp"
         android:paddingEnd="2dp"
         android:text="✕"
-        android:textColor="#9E9E9E"
+        android:textColor="@color/hint"
         android:textSize="15sp" />
 </LinearLayout>
