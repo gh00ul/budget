@@ -1,0 +1,48 @@
+# Every push to main builds the APK (downloadable from the run's artifacts).
+# Pushing a tag like v2.0.1 also publishes it as a GitHub Release, which the app
+# offers as an update the next time it opens.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Build APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > release.jks
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then VERSION="${GITHUB_REF_NAME#v}"; else VERSION=0.0.1; fi
+          gradle assembleRelease -PappVersion="$VERSION"
+          cp build/outputs/apk/release/*.apk budget.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: budget-apk
+          path: budget.apk
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" budget.apk --title "$GITHUB_REF_NAME" --generate-notes

@@ -1,5 +1,6 @@
-bin/
-obj/
-out/
-.vs/
-*.user
+build/
+.gradle/
+.idea/
+*.iml
+local.properties
+*.jks
