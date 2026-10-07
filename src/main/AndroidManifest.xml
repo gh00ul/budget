@@ -14,9 +14,12 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!-- singleTop: once a home-screen shortcut has started the app, tapping its icon must come back to the
+             same screen (onNewIntent), not stack a second copy with older numbers on top of it. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

@@ -133,3 +133,66 @@ Lead ran Gradle (8.11.1, the CI version; no wrapper in the repo) locally, one bu
 - **UnusedAttribute for `accessibilityHeading` / `screenReaderFocusable`**: ignored by message in `lint.xml`; they're API 28 screen-reader hints that Android 8.x simply ignores.
 - **Justified `tools:ignore`** (each with an XML comment): `LabelFor` ×2 (the label is the dialog's title / both label and example hint are wanted), `SmallSp` (10sp month in the 44dp date badge), `MergeRootFrame` (root is looked up by id), `Overdraw` (background is a press ripple), `UseCompoundDrawables` (separately sized/tinted icon), `TooManyViews` (three tabs in one layout), `VectorPath` (small gear icon).
 - **OldTargetApi, AndroidGradlePluginVersion, GradleDependency** (the 3 remaining warnings): kept visible as reminders. Upgrading AGP/Kotlin/targetSdk 36 is a separate, riskier step (predictive back must be migrated first, F-25) — see Remaining risks.
+
+---
+
+## Phase 3 — Crash hunt
+
+Six read-only audits over the whole codebase, run in two batches of three (this PC's limit): **Null-Safety** (N-), **Lifecycle** (L-), **Threading** (T-; the app has no coroutines, so raw threads were audited), **UI rendering** (U-; Compose isn't used — confirmed by grep — so the View-system equivalents were audited), **Permissions & Intents** (P-), **Resources** (R-). The lead deduplicated them against the Phase 1 list (F-). Fixes: the **BankSync fix agent** owned `BankSync.kt`; the lead owned `MainActivity.kt` and the manifest (every other fix touched that one file). Build + lint after fixes: ✅ 0 Kotlin warnings, lint 0 errors / 3 deliberate warnings. An independent **Reviewer agent** then checked the diff (see "Review" below).
+
+No Critical crash was found. Most of the risk was in work that outlives a screen (rotation, dark mode, split-screen, and home-screen shortcuts — which always start a fresh screen), and in the update installer on Android 10+.
+
+### Fixed
+
+| ID (dupes) | Sev | Bug | Root cause → fix | Files | Found by |
+|---|---|---|---|---|---|
+| L-1 | High | After using a home-screen shortcut, tapping the app icon stacked a second, stale copy of the screen whose next save could overwrite newer data. | The launcher intent didn't match the task's root intent → `launchMode="singleTop"`, so the icon returns to the same screen (`onNewIntent`). | AndroidManifest.xml | Lifecycle |
+| F-04 (T-3, L-2, P-2, L-4, L-8, T-6, L-10, T-1) | Medium | Rotating or using a shortcut during a bank sync / connect / update download started a second one, dropped the first result, kept the old screen alive, and a fresh screen abandoned the install session still in use. "Sync now" during a sync did nothing. | Per-screen state → one file-private `Running` object (process-wide, main thread only) holds sync/connect/download/install-session state; workers post results to whichever screen is current, never to the one that started them; stale install sessions are cleared once per process and never the one in use; a "Sync now" during a running sync is announced when it finishes. | MainActivity.kt | Architecture, Data, Threading, Lifecycle, Permissions |
+| F-10 (P-1, P-3) | Medium | The "Update this app?" prompt silently never appeared if you left the app during the download; install failures were silent on Android 13+; a missing installer could crash. | Android 10+ (and the 2023 security fix on 11–13) only lets the installer's result open the prompt while the app is on screen → the prompt waits in `Running` and opens on the next `onResume`; failure messages wait for a screen too; `ActivityNotFoundException`/`SecurityException` handled. | MainActivity.kt | Architecture, Dependency, Permissions |
+| F-01 | Medium | A sync that finished after Disconnect (or a reconnect) saved its data back / overwrote the new connection. | No connection identity → `BankStore.connection` (the key's random IV); results for an old connection are dropped and the new one gets its own sync. | BankSync.kt, MainActivity.kt | Architecture, Data, Threading |
+| F-02 (T-4) | Medium | A keystore error while connecting crashed the app; key generation ran on the main thread. | Unguarded `Keys.encrypt` → `sealAccessKey()` on the connect worker; keystore errors become a readable `BankException`; `Keys.key()` is `@Synchronized` so two connects can't both create the key. | BankSync.kt, MainActivity.kt | Data, lead, Threading |
+| F-03 | Medium | Unexpected errors showed their raw text (could include the URL or `Bearer <key>`). | Raw `Throwable.message` → only `BankException` text is shown; anything else gets a plain message and only its class is logged; keys with unsendable characters are rejected before the header is built (`isUsableKey`). | both | Data, Null-Safety |
+| F-05 | Medium | Cancelling "Connect your bank" while it said "Connecting…" still connected. | Result applied unconditionally → Cancel/Back cancel the attempt (a rotation doesn't — the account choice then comes up on the new screen). | MainActivity.kt | Architecture |
+| F-06 | Medium | Editing a bill while a background sync marked it paid: "saved", but the edit was lost; "Mark paid" from the sheet did nothing. | Bills tracked by object identity → each bill has an in-memory `id` kept across paid-mark copies; lookups use `indexOfBill`; the sheet merges paid marks added meanwhile. | MainActivity.kt | Architecture |
+| F-07 | Medium | Renaming a bill flipped transactions you'd assigned to it back to "spending" (counted twice). | Overrides store `bill:<name>` → renaming rewrites them (and Undo rewrites them back). | both | Data |
+| F-08 | Medium | A reply without a `transactions` list wiped every "how it counts" choice. | Missing list treated as empty → it's an error now (the server always sends it; checked in its source). | BankSync.kt | Data |
+| F-09 | Medium | An unreadable saved bill was dropped and then erased by the next save; a damaged list lost every bill. | Silent `runCatching` → unreadable bills are kept as-is and written back on every save; an unparseable list is copied to `bills_unreadable` first (same for paycheck changes). | MainActivity.kt | Data, lead |
+| L-3 | Medium | Rotating (or a dark-mode switch) while "Has today's pay landed?" / "Did Rent come out today?" / "Did you spend $X?" was open lost the answer, leaving Safe to spend wrong. | The questions lived only in dialog closures → the chain is a member (`askBalanceFollowUps`); the open question is saved with the screen's state and asked again after recreation. | MainActivity.kt | Lifecycle |
+| T-2 (U-1) | Medium | 30–100 ms main-thread stalls on every redraw with a linked bank (≈9,000 regex compiles). | Regex built per transaction × bill → compiled once, bill names split once, names compared only when the amount is close (same results). | MainActivity.kt | Threading, UI |
+| T-7 (U-3) | Medium | A background sync replaced a pending Undo ("Deleted Rent · Undo"), making the delete permanent. | Every sync message cleared Undo state → a sync nobody asked for doesn't replace a pending Undo. | MainActivity.kt | Threading, UI |
+| U-2 (part) | Medium | A background sync landing mid-swipe cancelled the swipe. | Full redraw replaced the touched row → redraws wait until the finger lifts. (TalkBack focus restore → Phase 7.) | MainActivity.kt | UI |
+| F-11 | Low | Rotating with any dialog open leaked its window. | Untracked dialogs → all dialogs go through `present()` and are dismissed (not cancelled) in `onDestroy`; nothing is shown on a finishing screen. | MainActivity.kt | Architecture, Lifecycle |
+| F-12 | Low | A wrongly-typed saved value crashed startup before the update banner. | Unguarded getters → treated as missing (logged by key name only). | MainActivity.kt | Data |
+| F-13, F-14, F-15 | Low | One bad saved item emptied a whole list; a non-numeric balance became $0.00; TLS/DNS/timeouts all said "check your connection". | Per-item parsing with counts logged; non-numbers → null; specific messages with the cause kept. | BankSync.kt | Data |
+| F-16…F-20, P-5 | Low | Update check on every rotation, no status check/disconnect/size limit; truncated download installed; swallowed errors; "Update failed: null"; unguarded settings launch; debug builds offered to install the release app. | Cached for 30 min, status-checked, bounded, disconnected; download size checked against the release; session pinned to this package; per-status messages (Auto Blocker, conflict — "don't uninstall", storage…); `ActivityNotFoundException` handled; debug builds only say a release is out. | MainActivity.kt | Architecture, Data, Dependency, Permissions |
+| F-21 (U-6) | Low | The date at the top (and all numbers) stayed on yesterday while the app stayed open; "Log a purchase" across midnight used the old balance. | Set once → set on every redraw, plus a redraw at midnight while on screen; the purchase uses the balance at save time. | MainActivity.kt | Architecture, UI |
+| F-23 | Low | An expired delete-Undo came back after process death. | Saved without expiry → saved with its end time. | MainActivity.kt | Architecture |
+| N-1, N-2 | Low | A server date near year 999,999,999 crashed date math; a corrupted saved date could hang the app. | No bounds → future-dated transactions (>31 days) dropped; saved dates outside 1900–2200 ignored. | both | Null-Safety |
+| L-5 (T-8) | Low | A swipe finishing during a rotation acted on the old screen's data. | End action didn't check → skipped on a destroyed screen. | MainActivity.kt | Lifecycle, Threading |
+| L-7 | Low | Reopening from Recents replayed the shortcut that first opened the app. | `FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY` checked. | MainActivity.kt | Lifecycle |
+| T-9, T-10, L-9 | Low | Failed syncs retried on every resume; unnamed threads; a local `finish()` shadowing `Activity.finish()`. | 5-minute back-off after a failure; named threads; renamed. | both | Threading, Lifecycle |
+
+How verified: compiled (0 warnings) and lint-clean; reviewed by the lead and the Reviewer agent; logic covered by unit tests where it's pure (Phase 6). **Not verified on a device** (owner chose no on-device testing this session).
+
+### Review (Reviewer agent, read-only, on the uncommitted diff)
+
+Verdict: sound, one blocker. All findings were fixed before this phase was committed:
+
+| ID | Sev | Problem | Fix |
+|---|---|---|---|
+| RV-1 | High | My F-22 change was itself a bug: Android's `numberDecimal` fields (no `imeHintLocales`) only accept digits and `.` in every locale, so a comma can't be typed, and the new parser then read "12.50" as 1250 on comma-decimal phones. | Reverted to the original `.`-only parsing, which matches what the fields accept. **F-22 is not a bug** (withdrawn). |
+| RV-2 | Low | Keeping an Undo through a background sync (T-7) also kept snapshot Undos, which would roll back the sync's paid marks and balance. | Only a delete's Undo (re-inserts one bill) is kept; other Undos are replaced by the sync message, as before. |
+| RV-3 | Low | After a rotation, a connect result could re-enable/dismiss a different, newer "Connect" dialog. | Results only touch the dialog that started that attempt; Connect is re-enabled only if its fields are still valid. |
+| RV-4 | Low | The update-check thread called a screen method (`isNewer`), keeping that screen in memory. | `isNewer` is a top-level function. |
+| RV-5 | Low | A balance question saved before process death could be re-asked the next day against yesterday's numbers. | Saved with its day; only re-asked the same day. |
+| RV-6 | Low | If the installer's result started the app with no screen, the first screen then abandoned that session as stale. | The receiver records the session as in use before holding the prompt. |
+| RV-7 | Low | A held redraw ran during the 160 ms swipe-out, so a deleted row flashed back. | A committed swipe releases the hold only after the delete / mark-paid runs. |
+| RV-8 | Low | A rename's Undo moved back every `bill:<new name>` choice, including another bill's. | `renameBillOverrides` returns the transactions it moved; Undo moves back exactly those. |
+
+Also from the review: `isUsableKey` allowed only `!`..`~`, so an existing key containing a space (legal in a header) would have started failing — now spaces inside a key are allowed.
+
+### Moved to later phases / left
+
+- **Phase 5**: P-6 (a sync cut off because the app went to the background is saved as an error), F-24 (whole-state Undo vs. a sync landing in its window), P-7 (cloud backup without encryption — owner's choice), orphan keys from v2.0/v2.3.
+- **Phase 7 (UI)**: R-1 (High: money amounts split mid-number at the owner's font size), R-2…R-11, U-2 TalkBack focus, U-4 (sheet under the status bar), U-5, U-7…U-14, F-28.
+- **Left on purpose**: F-25 (predictive back — must be migrated before targetSdk 36), F-29 (`refresh()` safety net kept), T-5 (6–18 ms prefs load at cold start), L-6 (shortcuts always start a fresh screen — platform behavior; keeping open work would need a trampoline activity), U-15 (a half-typed bill sheet is lost on rotation), F-30 (cleartext to localhost — the fake-bank test path), a choice made on a *pending* transaction is lost when it posts under a new ID (the server doesn't pass Plaid's link through — needs a server change).

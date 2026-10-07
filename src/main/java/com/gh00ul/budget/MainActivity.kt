@@ -9,6 +9,7 @@ import android.app.AlertDialog
 import android.app.DatePickerDialog
 import android.app.Dialog
 import android.app.PendingIntent
+import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -62,16 +63,25 @@ import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.io.InputStream
+import java.lang.ref.WeakReference
 import java.math.RoundingMode
 import java.net.HttpURLConnection
 import java.net.URL
 import java.text.DecimalFormat
 import java.text.NumberFormat
+import java.time.DateTimeException
 import java.time.DayOfWeek
+import java.time.Duration
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
 import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
@@ -102,12 +112,16 @@ class MainActivity : Activity() {
 
     // date = the first (or any) date the bill is due; it repeats from there on.
     // paid = due dates marked paid (early, or already taken by autopay) → the day they were marked.
+    // id = which bill this is while the app is open. A bill is replaced by a new object whenever it changes (a
+    // bank sync marking it paid, say), so anything holding an older copy (an open edit sheet, a row being
+    // swiped) finds the current one with indexOfBill(). Not saved; each load gives fresh ids.
     private class Bill(
         val name: String,
         val amount: Double,
         val freq: Freq,
         val date: LocalDate,
         val paid: Map<LocalDate, LocalDate> = emptyMap(),
+        val id: Any = Any(),
     ) {
         // This bill's share of one week, e.g. $1,200 monthly rent ≈ $275.97 a week.
         val perWeek: Double get() = amount * 7 / freq.cycleDays
@@ -159,9 +173,12 @@ class MainActivity : Activity() {
             paid.entries.filter { !it.value.isBefore(today.minusDays(6)) && !it.value.isAfter(today) }
                 .maxByOrNull { it.value.toEpochDay() }?.key
 
-        fun withPaid(due: LocalDate, on: LocalDate) = Bill(name, amount, freq, date, paid + (due to on))
-        fun withoutPaid(due: LocalDate) = Bill(name, amount, freq, date, paid - due)
+        fun withPaid(due: LocalDate, on: LocalDate) = Bill(name, amount, freq, date, paid + (due to on), id)
+        fun withoutPaid(due: LocalDate) = Bill(name, amount, freq, date, paid - due, id)
     }
+
+    // Where a bill (any copy of it) is in `bills` now, or -1 if it was deleted.
+    private fun indexOfBill(bill: Bill) = bills.indexOfFirst { it.id === bill.id }
 
     // The "bill buffer": what has to stay in the bank for upcoming bills.
     private class Buffer(
@@ -234,17 +251,17 @@ class MainActivity : Activity() {
 
     // Bank sync (BankSync.kt). The balance comes from checking; purchases on checking and cards count as spent.
     private val bank by lazy { BankStore(this) }
-    private var bankSyncing = false
     private var earlyPay: LocalDate? = null // an upcoming payday whose paycheck is already in the synced balance
-
-    private var updateUrl: String? = null
-    private var latestVersion: String? = null
-    private var downloading = false
-    private var updateStatusText = "checking…"
+    // "Connect your bank" while it waits for the server: the dialog, which attempt it started, and whether what's
+    // typed in it is still valid.
+    private var connectDialog: AlertDialog? = null
+    private var connectDialogAttempt = 0
+    private var connectFieldsValid: () -> Boolean = { false }
 
     private val handler = Handler(Looper.getMainLooper())
     private val pendingDeletes = mutableListOf<Pair<Int, Bill>>() // (index it was at, bill)
     private var snackUndo: (() -> Unit)? = null
+    private var snackHideAt = 0L // when the message bar goes away (wall clock), so a restored Undo can expire
     private val hideSnack = Runnable {
         pendingDeletes.clear()
         snackUndo = null
@@ -308,18 +325,17 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Running.screen = WeakReference(this)
         setContentView(R.layout.activity_main)
 
         fitToSystemBars()
         setUpTabs()
         // The update check runs before anything reads saved data, so a data problem can never block an
         // update that fixes it.
-        if (savedInstanceState == null) clearStaleInstallSessions()
+        clearStaleInstallSessions()
         checkForUpdate()
         load()
 
-        findViewById<TextView>(R.id.today_label).text =
-            LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, MMMM d"))
         findViewById<View>(R.id.bills_card).clipToOutline = true // keeps swiped rows inside the rounded card
 
         hero.setOnClickListener { explainSafeToSpend() }
@@ -343,22 +359,19 @@ class MainActivity : Activity() {
         updateButton.setOnClickListener { installUpdate() }
         undoButton.setOnClickListener { undo() }
 
-        // Coming back from a dark-mode / font-size change: same tab, and an Undo that was showing.
+        // Coming back from a dark-mode / font-size change: same tab, an Undo that was showing, and a balance
+        // question that was open.
         if (savedInstanceState != null) {
             showTab(savedInstanceState.getInt("tab", 0), animate = false)
-            runCatching {
-                val saved = JSONArray(savedInstanceState.getString("undo") ?: "[]")
-                for (i in 0 until saved.length()) {
-                    val entry = saved.getJSONObject(i)
-                    billFromJson(entry.getJSONObject("bill"))?.let { pendingDeletes += entry.getInt("index") to it }
-                }
-                if (pendingDeletes.isNotEmpty()) showSnackBar(deletedText(), canUndo = true)
-            }
-        } else {
+            restoreUndo(savedInstanceState)
+            restoreFollowUp(savedInstanceState)
+        } else if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY == 0) {
+            // (Reopened from Recents, the shortcut that first opened the app isn't being used again.)
             handleShortcut(intent)
         }
     }
 
+    // The launcher icon while the app is open (launchMode singleTop), or a shortcut started by another app.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -368,28 +381,123 @@ class MainActivity : Activity() {
     // Redraw on every return to the app so "due in X days" and the paydays stay current.
     override fun onResume() {
         super.onResume()
+        Running.screen = WeakReference(this)
+        Running.resumed = WeakReference(this)
         refresh()
         syncBank()
+        scheduleMidnightRefresh()
         // Back from the install prompt without installing (or it failed): let them try again.
-        if (updateUrl != null && !downloading) {
-            updateText.text = "Version $latestVersion is ready"
-            updateButton.isEnabled = true
+        showUpdateState()
+        Running.installFailure?.let { message ->
+            Running.installFailure = null
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         }
+        // Android's "Update this app?" screen, if the download finished while Budget wasn't on screen.
+        Running.installPrompt?.let { prompt ->
+            Running.installPrompt = null
+            Running.showInstallPrompt(this, prompt)
+        }
+    }
+
+    override fun onPause() {
+        if (Running.resumed?.get() === this) Running.resumed = null
+        rowHeld = false // a touch never ends while the app is in the background; onResume redraws anyway
+        refreshHeld = false
+        handler.removeCallbacks(midnightRefresh)
+        super.onPause()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putInt("tab", currentTab)
-        val undo = JSONArray()
-        for ((index, bill) in pendingDeletes) undo.put(JSONObject().put("index", index).put("bill", billToJson(bill)))
-        outState.putString("undo", undo.toString())
+        if (pendingDeletes.isNotEmpty()) {
+            val undo = JSONArray()
+            for ((index, bill) in pendingDeletes) undo.put(JSONObject().put("index", index).put("bill", billToJson(bill)))
+            outState.putString("undo", undo.toString())
+            outState.putLong("undo_until", snackHideAt)
+        }
+        followUp?.let { f ->
+            outState.putLong("follow_up_day", LocalDate.now().toEpochDay())
+            outState.putDouble("follow_up_value", f.value)
+            f.logged?.let { outState.putDouble("follow_up_logged", it) }
+            outState.putDouble("follow_up_drop", f.drop)
+            outState.putDouble("follow_up_old", f.oldBalance)
+        }
+    }
+
+    // Deleted bills whose Undo was still showing when the screen was replaced, as long as its time hasn't run out.
+    private fun restoreUndo(state: Bundle) {
+        val saved = state.getString("undo") ?: return
+        if (System.currentTimeMillis() >= state.getLong("undo_until")) return
+        try {
+            val list = JSONArray(saved)
+            for (i in 0 until list.length()) {
+                val entry = list.getJSONObject(i)
+                billFromJson(entry.getJSONObject("bill"))?.let { pendingDeletes += entry.getInt("index") to it }
+            }
+        } catch (e: JSONException) {
+            Log.w("Budget", "Couldn't restore Undo: ${e.javaClass.name}") // only the Undo is lost; the delete was saved
+            pendingDeletes.clear()
+        }
+        if (pendingDeletes.isNotEmpty()) showSnackBar(deletedText(), canUndo = true)
+    }
+
+    // A balance question that was open when the screen was replaced is asked again (without Undo), as long as it's
+    // still the same day: its "earlier today" and "due today" wouldn't mean the same thing tomorrow.
+    private fun restoreFollowUp(state: Bundle) {
+        if (!state.containsKey("follow_up_value")) return
+        if (state.getLong("follow_up_day") != LocalDate.now().toEpochDay()) return
+        val f = BalanceFollowUp(
+            value = state.getDouble("follow_up_value"),
+            logged = if (state.containsKey("follow_up_logged")) state.getDouble("follow_up_logged") else null,
+            drop = state.getDouble("follow_up_drop"),
+            oldBalance = state.getDouble("follow_up_old"),
+        )
+        hero.post { askBalanceFollowUps(f, undo = null) }
+    }
+
+    // Redraws at midnight while the app stays open, so the date, "due in" days and the pay week move on.
+    private val midnightRefresh: Runnable = Runnable {
+        refresh()
+        scheduleMidnightRefresh()
+    }
+
+    private fun scheduleMidnightRefresh() {
+        handler.removeCallbacks(midnightRefresh)
+        val now = ZonedDateTime.now()
+        val midnight = now.toLocalDate().plusDays(1).atStartOfDay(now.zone)
+        handler.postDelayed(midnightRefresh, Duration.between(now, midnight).toMillis() + 1_000)
     }
 
     override fun onDestroy() {
+        if (Running.screen?.get() === this) Running.screen = null
         handler.removeCallbacksAndMessages(null)
         heroAnimator?.cancel()
+        // dismiss(), never cancel(): the balance questions go on to the next one from their cancel listeners,
+        // which would open a dialog on a screen that's going away. An open question is asked again after a
+        // rotation instead (see BalanceFollowUp).
+        for (dialog in openDialogs) if (dialog.isShowing) dialog.dismiss()
+        openDialogs.clear()
         sheetDialog?.dismiss()
         super.onDestroy()
+    }
+
+    // Every dialog is shown through here, so the open ones close with the screen (instead of leaking their
+    // window on rotation) and nothing is shown on a screen that's finishing or already replaced, e.g. by a late
+    // network result or a posted shortcut. Returns false when it didn't show, so callers that set up buttons after
+    // show() can stop.
+    private val openDialogs = mutableListOf<Dialog>()
+
+    private fun present(dialog: Dialog): Boolean {
+        if (isFinishing || isDestroyed) return false
+        openDialogs.removeAll { !it.isShowing }
+        openDialogs += dialog
+        dialog.show()
+        return true
+    }
+
+    private fun AlertDialog.Builder.present() {
+        present(create())
     }
 
     // Back from another tab goes to Summary before leaving the app.
@@ -695,13 +803,11 @@ class MainActivity : Activity() {
         }
     }
 
-    // "Phone bill" and "VERIZON WIRELESS" don't match; "Verizon" does.
-    private fun nameMatches(billName: String, txnName: String): Boolean {
-        val name = txnName.lowercase()
-        return billName.lowercase().split(Regex("[^a-z0-9]+"))
-            .any { it.length >= 3 && it !in genericBillWords && name.contains(it) }
-    }
+    // The words of a bill's name worth matching on: "Phone bill" has none; "Verizon" matches "VERIZON WIRELESS".
+    private fun billWords(billName: String) =
+        billName.lowercase().split(nonWord).filter { it.length >= 3 && it !in genericBillWords }
 
+    private val nonWord = Regex("[^a-z0-9]+")
     private val genericBillWords = setOf("bill", "the", "and", "pay", "payment", "monthly", "auto", "autopay", "fee")
 
     // Which transactions paid which bill due dates: the amount matches (to the cent, near enough), or the name
@@ -722,14 +828,20 @@ class MainActivity : Activity() {
         }
         class Candidate(val txn: BankTxn, val bill: Int, val due: LocalDate, val score: Double)
         val candidates = mutableListOf<Candidate>()
+        // This runs on every redraw, over every transaction × bill, so the bill names are split once here and a
+        // name is only compared when the amount is close enough for it to matter.
+        val words = bills.map { billWords(it.name) }
         for (t in txns) {
             if (t.amount >= 0 || t.account !in accounts || t.id in result || overrides[t.id] != null) continue
             val paid = -t.amount
+            val txnName = t.name.lowercase()
             bills.forEachIndexed { i, bill ->
                 if (bill.amount <= 0) return@forEachIndexed
-                val nameHit = nameMatches(bill.name, t.name)
                 val diff = abs(paid - bill.amount)
-                if (diff > maxOf(0.5, bill.amount * 0.01) && !(nameHit && diff <= bill.amount * 0.35)) return@forEachIndexed
+                val sameAmount = diff <= maxOf(0.5, bill.amount * 0.01)
+                if (!sameAmount && diff > bill.amount * 0.35) return@forEachIndexed
+                val nameHit = words[i].any { txnName.contains(it) }
+                if (!sameAmount && !nameHit) return@forEachIndexed
                 for (due in bill.dueDates(t.date.minusDays(4), t.date.plusDays(5))) {
                     val days = abs(ChronoUnit.DAYS.between(due, t.date))
                     candidates += Candidate(t, i, due, (if (nameHit) 0.0 else 100.0) + diff / bill.amount * 50 + days)
@@ -781,25 +893,59 @@ class MainActivity : Activity() {
         return names.distinct()
     }
 
-    // On opening the app (at most every half hour), or when asked: get the latest from the bank.
+    // On opening the app (at most every half hour, or 5 minutes after a sync that failed), or when asked: get the
+    // latest from the bank.
     private fun syncBank(force: Boolean = false) {
-        if (!bank.isLinked || bankSyncing) return
-        if (!force && System.currentTimeMillis() - bank.checkedAt < 30 * 60_000L) return
+        if (!bank.isLinked) return
         val url = bank.url ?: return
-        bankSyncing = true
+        val connection = bank.connection ?: return
+        if (Running.syncing != null) {
+            // Already syncing, maybe for an earlier screen: say how it went once it's done.
+            if (force) {
+                Running.syncAnnounce = true
+                balanceUpdatedView.text = "Syncing…"
+            }
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (!force && (now - bank.checkedAt < 30 * 60_000L || now - bank.failedAt < 5 * 60_000L)) return
+        Running.syncing = connection
+        Running.syncAnnounce = force
         if (force) balanceUpdatedView.text = "Syncing…"
-        thread {
-            val result = runCatching { BankServer.sync(url, bank.key()) }
-            runOnUiThread {
-                bankSyncing = false
-                if (isDestroyed) return@runOnUiThread
-                result.onSuccess { applyBank(it, announce = force) }.onFailure { e ->
-                    bank.saveError(e.message ?: "Bank sync failed.")
-                    refresh()
-                    if (force) Toast.makeText(this, e.message ?: "Bank sync failed.", Toast.LENGTH_LONG).show()
-                }
+        val store = bank // holds only the preferences, not this screen
+        thread(name = "budget-bank-sync") {
+            val result = runCatching { BankServer.sync(url, store.key()) }
+            Running.main.post {
+                Running.syncing = null
+                val announce = Running.syncAnnounce
+                Running.syncAnnounce = false
+                Running.liveScreen()?.bankSynced(connection, result, announce)
             }
         }
+    }
+
+    // A sync finished. If the bank was disconnected or connected again meanwhile, the result belongs to the old
+    // connection and is dropped; a new connection then gets its own sync.
+    private fun bankSynced(connection: String, result: Result<BankSnapshot>, announce: Boolean) {
+        if (bank.connection != connection) {
+            if (bank.isLinked) syncBank(force = announce)
+            return
+        }
+        result.onSuccess { applyBank(it, announce) }.onFailure { e ->
+            val message = bankErrorText(e, "Bank sync failed. Try again later.")
+            bank.saveError(message)
+            refresh()
+            if (announce) Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // What to tell the user about a failed bank request. BankSync's own messages are written for people; anything
+    // else is unexpected, so it gets `fallback` (its message could hold the address or the key), and only the
+    // error's type goes to the log.
+    private fun bankErrorText(e: Throwable, fallback: String): String {
+        if (e is BankException) return e.message ?: fallback
+        Log.w("Budget", "Bank request failed: ${e.javaClass.name}")
+        return fallback
     }
 
     // The checking balance becomes the bank balance, paychecks are checked off, and paid bills are marked.
@@ -824,6 +970,9 @@ class MainActivity : Activity() {
         save()
         refresh()
         when {
+            // A sync nobody asked for doesn't take away a delete's Undo, which only puts the deleted bill back. (Other
+            // Undos restore everything as it was, which would also undo this sync, so the message replaces them.)
+            !announce && pendingDeletes.isNotEmpty() -> Unit
             marked.isNotEmpty() -> showSnack("${marked.joinToString()} marked paid from your bank")
             announce && bank.error != null -> showSnack("Sync problem · tap your bank balance for details")
             announce -> showSnack("Synced with ${account.institution ?: "your bank"}")
@@ -876,11 +1025,14 @@ class MainActivity : Activity() {
                 "this phone keeps only the access key, encrypted.")
             .setView(box)
             .setPositiveButton("Connect", null)
-            .setNegativeButton("Cancel", null)
+            // Cancel (or Back) stops a connect that's still checking; the dialog closing with a rotated screen
+            // doesn't, and the account choice then comes up on the new screen.
+            .setNegativeButton("Cancel") { _, _ -> Running.connecting = 0 }
+            .setOnCancelListener { Running.connecting = 0 }
             .create()
-        dialog.show()
+        if (!present(dialog)) return
         val connect = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-        fun valid() = BankServer.cleanUrl(urlBox.text.toString()) != null && keyBox.text.toString().trim().length >= 32
+        fun valid() = BankServer.cleanUrl(urlBox.text.toString()) != null && BankServer.isUsableKey(keyBox.text.toString().trim())
         connect.isEnabled = valid()
         onTextChange(urlBox) { connect.isEnabled = valid() }
         onTextChange(keyBox) { connect.isEnabled = valid() }
@@ -889,30 +1041,47 @@ class MainActivity : Activity() {
             val key = keyBox.text.toString().trim()
             connect.isEnabled = false
             connect.text = "Connecting…"
-            thread {
-                val result = runCatching { BankServer.snapshot(url, key) }
-                runOnUiThread {
-                    if (isDestroyed) return@runOnUiThread
-                    val snapshot = result.getOrNull()
-                    val checking = snapshot?.accounts.orEmpty().filter { it.isChecking }
-                        .ifEmpty { snapshot?.accounts.orEmpty().filter { it.type == "depository" } }
-                    if (snapshot == null || checking.isEmpty()) {
-                        connect.isEnabled = true
-                        connect.text = "Connect"
-                        Toast.makeText(this, result.exceptionOrNull()?.message
-                            ?: "No checking account on that server yet. Link your bank in ClearBudget first.", Toast.LENGTH_LONG).show()
-                        return@runOnUiThread
-                    }
-                    dialog.dismiss()
-                    pickAccount(checking) { account ->
-                        bank.connect(url, key, account.id)
-                        applyBank(snapshot, announce = false)
-                        syncBank(force = true)
-                    }
+            val attempt = ++Running.connectAttempts
+            Running.connecting = attempt
+            connectDialog = dialog
+            connectDialogAttempt = attempt
+            connectFieldsValid = ::valid
+            thread(name = "budget-bank-connect") {
+                // The key is also sealed with the phone's keystore here, off the main thread (that can take a moment).
+                val result = runCatching { BankServer.snapshot(url, key) to sealAccessKey(key) }
+                Running.main.post {
+                    if (Running.connecting != attempt) return@post // cancelled, or tried again since
+                    Running.connecting = 0
+                    Running.liveScreen()?.bankChecked(url, attempt, result)
                 }
             }
         }
         urlBox.requestFocus()
+    }
+
+    // The server answered "Connect": pick the checking account, or say what went wrong.
+    private fun bankChecked(url: String, attempt: Int, result: Result<Pair<BankSnapshot, SealedKey>>) {
+        // The dialog that started this attempt; none if the screen was replaced (or it was opened again) meanwhile.
+        val dialog = connectDialog?.takeIf { it.isShowing && connectDialogAttempt == attempt }
+        val (snapshot, key) = result.getOrNull() ?: (null to null)
+        val checking = snapshot?.accounts.orEmpty().filter { it.isChecking }
+            .ifEmpty { snapshot?.accounts.orEmpty().filter { it.type == "depository" } }
+        if (snapshot == null || key == null || checking.isEmpty()) {
+            dialog?.getButton(AlertDialog.BUTTON_POSITIVE)?.apply {
+                isEnabled = connectFieldsValid()
+                text = "Connect"
+            }
+            val message = result.exceptionOrNull()?.let { bankErrorText(it, "Couldn't connect to the bank server. Try again.") }
+                ?: "No checking account on that server yet. Link your bank in ClearBudget first."
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            return
+        }
+        dialog?.dismiss()
+        pickAccount(checking) { account ->
+            bank.connect(url, key, account.id)
+            applyBank(snapshot, announce = false)
+            syncBank(force = true)
+        }
     }
 
     private fun pickAccount(choices: List<BankAccount>, onPick: (BankAccount) -> Unit) {
@@ -923,7 +1092,7 @@ class MainActivity : Activity() {
                 "${a.institution ?: "Bank"} ${a.label}" + ((a.available ?: a.current)?.let { " · ${money.format(it)}" } ?: "")
             }.toTypedArray()) { _, which -> onPick(choices[which]) }
             .setNegativeButton("Cancel", null)
-            .show()
+            .present()
     }
 
     // Settings → the bank: sync, switch accounts, or disconnect.
@@ -944,11 +1113,11 @@ class MainActivity : Activity() {
                         .setMessage("You'll go back to updating your balance yourself. Your bank stays linked on the bank server.")
                         .setPositiveButton("Disconnect") { _, _ -> disconnectBank() }
                         .setNegativeButton("Cancel", null)
-                        .show()
+                        .present()
                 }
             }
             .setNegativeButton("Close", null)
-            .show()
+            .present()
     }
 
     private fun disconnectBank() {
@@ -985,7 +1154,7 @@ class MainActivity : Activity() {
             .setPositiveButton("Sync now") { _, _ -> syncBank(force = true) }
             .setNeutralButton("Purchases") { _, _ -> showPurchases() }
             .setNegativeButton("Close", null)
-            .show()
+            .present()
     }
 
     // This pay week's transactions: what counted as spending, the bills, and what didn't count.
@@ -1020,7 +1189,7 @@ class MainActivity : Activity() {
             .setView(ScrollView(this).apply { addView(box) })
             .setPositiveButton("Done", null)
             .create()
-        dialog.show()
+        present(dialog)
     }
 
     private fun txnRow(into: LinearLayout, s: Sorted, onClick: () -> Unit) {
@@ -1089,7 +1258,7 @@ class MainActivity : Activity() {
                             set("bill:${bills[which].name}")
                         }
                         .setNegativeButton("Cancel") { _, _ -> showPurchases() }
-                        .show()
+                        .present()
                     Unit
                 }
             }
@@ -1103,7 +1272,7 @@ class MainActivity : Activity() {
             .setItems(choices.map { it.first }.toTypedArray()) { _, which -> choices[which].second() }
             .setNegativeButton("Cancel") { _, _ -> showPurchases() }
             .setOnCancelListener { showPurchases() }
-            .show()
+            .present()
     }
 
     // A bill that was marked paid because of this transaction isn't paid after all.
@@ -1114,8 +1283,26 @@ class MainActivity : Activity() {
 
     // ---------- Drawing the screens ----------
 
+    // A finger is on a bill row. Redrawing would replace the row under it and cancel the swipe, so a redraw that
+    // comes in then (a bank sync finishing) waits until the finger lifts.
+    private var rowHeld = false
+    private var refreshHeld = false
+
+    private fun releaseRow() {
+        rowHeld = false
+        if (refreshHeld) {
+            refreshHeld = false
+            billList.post { refresh() }
+        }
+    }
+
     // Never let a bad number or date take the whole app down; show what happened instead.
     private fun refresh() {
+        if (rowHeld) {
+            refreshHeld = true
+            return
+        }
+        findViewById<TextView>(R.id.today_label).text = LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, MMMM d"))
         try {
             showSetup()
             showBills()
@@ -1648,7 +1835,7 @@ class MainActivity : Activity() {
             .setView(ScrollView(this).apply { addView(box) })
             .setPositiveButton("Got it", null)
             .create()
-        dialog.show()
+        present(dialog)
     }
 
     private fun dayRange(from: LocalDate, nextPayday: LocalDate): String {
@@ -1781,7 +1968,8 @@ class MainActivity : Activity() {
     private fun logPurchase() {
         val week = computeWeek(LocalDate.now())
         askAmount("Log a purchase", "How much did you spend? It comes off your bank balance (${money.format(week.bank)}).", null) { amount ->
-            if (amount > 0) saveBalance(cents(week.bank - amount), logged = amount)
+            // Worked out again: the box may have been open across midnight (payday), which moves the balance.
+            if (amount > 0) saveBalance(cents(computeWeek(LocalDate.now()).bank - amount), logged = amount)
         }
     }
 
@@ -1821,41 +2009,59 @@ class MainActivity : Activity() {
         if (balance > weekStartBalance - out + 0.004) weekStartBalance = cents(balance + out)
         save()
         refresh()
+        askBalanceFollowUps(BalanceFollowUp(value, logged, drop, oldBalance)) {
+            restore(before)
+            bills.clear()
+            bills.addAll(billsBefore)
+            save()
+            refresh()
+        }
+    }
 
-        fun finish() {
+    // A balance that was just saved, while the questions after it are open: "Has today's pay landed?", "Did Rent
+    // come out today?", "Did you spend $X?". Kept across rotation and dark-mode changes (onSaveInstanceState), so
+    // an open question is asked again instead of being lost along with its answer. drop/oldBalance: how much
+    // lower than the balance entered earlier today it is, and that balance.
+    private class BalanceFollowUp(val value: Double, val logged: Double?, val drop: Double, val oldBalance: Double)
+
+    private var followUp: BalanceFollowUp? = null
+
+    // Answers change state in memory and are saved together at the end, so a question lost with the screen is
+    // simply asked again from the start (`undo` is null then: the screen that could undo it is gone).
+    private fun askBalanceFollowUps(f: BalanceFollowUp, undo: (() -> Unit)?) {
+        followUp = f
+        val today = LocalDate.now()
+        val period = lastPayday(today)
+
+        fun finishBalance() {
+            followUp = null
             save()
             refresh()
             val week = computeWeek(today)
-            val message = if (logged != null) {
-                "Logged ${money.format(logged)} · balance ${money.format(value)}"
+            val message = if (f.logged != null) {
+                "Logged ${money.format(f.logged)} · balance ${money.format(f.value)}"
             } else {
                 "Balance saved" + (week.spent?.takeIf { it > 0 }?.let { " · ${money.format(it)} spent ${sinceText(week)}" } ?: "")
             }
-            showSnack(message) {
-                restore(before)
-                bills.clear()
-                bills.addAll(billsBefore)
-                save()
-                refresh()
-            }
+            showSnack(message, undo)
         }
 
         fun askCorrection(explained: Double) {
-            val unexplained = cents(drop - explained)
-            if (unexplained < 0.005) return finish()
+            val unexplained = cents(f.drop - explained)
+            if (unexplained < 0.005) return finishBalance()
             AlertDialog.Builder(this)
                 .setTitle("Did you spend ${money.format(unexplained)}?")
-                .setMessage("This is ${money.format(drop)} less than the ${money.format(oldBalance)} from earlier today" +
+                .setMessage("This is ${money.format(f.drop)} less than the ${money.format(f.oldBalance)} from earlier today" +
                     (if (explained > 0) ", and ${money.format(explained)} of that is bills due today. Was the other " +
                         "${money.format(unexplained)} spending" else ". Was that spending") +
-                    ", or was ${money.format(oldBalance)} a mistake?")
-                .setPositiveButton("Spending") { _, _ -> finish() }
+                    ", or was ${money.format(f.oldBalance)} a mistake?")
+                .setPositiveButton("Spending") { _, _ -> finishBalance() }
                 .setNegativeButton("A mistake") { _, _ ->
                     weekStartBalance = cents(weekStartBalance - unexplained)
-                    finish()
+                    finishBalance()
                 }
-                .setOnCancelListener { finish() }
-                .show()
+                .setOnCancelListener { finishBalance() }
+                .present()
         }
 
         // Bills due today: if the balance dropped by at least that much, ask whether they've come out.
@@ -1863,15 +2069,15 @@ class MainActivity : Activity() {
             val dueToday = bills.filter { it.unpaid(today, today.plusDays(1)).isNotEmpty() }
             val total = dueToday.sumOf { it.amount }
             val spent = computeWeek(today).spent ?: 0.0
-            if (logged != null || dueToday.isEmpty() || spent < total - 0.004) return askCorrection(0.0)
+            if (f.logged != null || dueToday.isEmpty() || spent < total - 0.004) return askCorrection(0.0)
             val names = dueToday.joinToString { it.name }
             AlertDialog.Builder(this)
                 .setTitle("Did $names come out today?")
                 .setMessage("$names (${money.format(total)}) is due today, and your balance dropped by at least that much.")
                 .setPositiveButton("Yes, it's paid") { _, _ ->
                     for (bill in dueToday) {
-                        val i = bills.indexOf(bill)
-                        if (i >= 0) bills[i] = bill.withPaid(today, today)
+                        val i = indexOfBill(bill)
+                        if (i >= 0) bills[i] = bills[i].withPaid(today, today)
                     }
                     // Paid marks only count after the starting balance's day, so take it off that balance instead.
                     if (weekStartTaken == today) weekStartBalance = cents(weekStartBalance - total)
@@ -1879,13 +2085,13 @@ class MainActivity : Activity() {
                 }
                 .setNegativeButton("Not yet") { _, _ -> askCorrection(0.0) }
                 .setOnCancelListener { askCorrection(0.0) }
-                .show()
+                .present()
         }
 
         // Payday morning: a balance about a whole paycheck lower than expected probably doesn't have it yet.
         val week = computeWeek(today)
         val pay = paycheckOn(period)
-        if (logged == null && today == period && pay > 0 && weekStartProjected && weekStartTaken == period &&
+        if (f.logged == null && today == period && pay > 0 && weekStartProjected && weekStartTaken == period &&
             (week.spent ?: 0.0) >= 0.9 * pay
         ) {
             AlertDialog.Builder(this)
@@ -1897,7 +2103,7 @@ class MainActivity : Activity() {
                     askBillsOut()
                 }
                 .setOnCancelListener { askBillsOut() }
-                .show()
+                .present()
         } else {
             askBillsOut()
         }
@@ -1925,7 +2131,7 @@ class MainActivity : Activity() {
             .setNegativeButton("Cancel", null)
             .create()
         dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
-        dialog.show()
+        if (!present(dialog)) return
         val saveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
         fun valid() = parseMoney(amountBox.text.toString())?.let { it > 0 } == true
         saveButton.isEnabled = valid()
@@ -2001,7 +2207,7 @@ class MainActivity : Activity() {
         val items = arrayOf(
             if (weeklyIncome > 0) "Your pay: ${money.format(weeklyIncome)} every $dayName" else "Your pay: not set",
             if (bank.isLinked) "Bank: ${bankName()}" else "Connect your bank (Plaid)",
-            "Check for updates ($updateStatusText)",
+            "Check for updates (${Running.updateStatus})",
         )
         AlertDialog.Builder(this)
             .setTitle("Settings · version ${BuildConfig.VERSION_NAME}")
@@ -2013,7 +2219,7 @@ class MainActivity : Activity() {
                 }
             }
             .setPositiveButton("Close", null)
-            .show()
+            .present()
     }
 
     // Small dialog with one "$" field and the keyboard already up. Save only works with a valid amount,
@@ -2045,7 +2251,7 @@ class MainActivity : Activity() {
         neutral?.let { (label, action) -> builder.setNeutralButton(label) { _, _ -> action() } }
         val dialog = builder.create()
         dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
-        dialog.show()
+        if (!present(dialog)) return
         val saveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
         saveButton.isEnabled = value() != null
         onTextChange(input) { saveButton.isEnabled = value() != null }
@@ -2063,10 +2269,13 @@ class MainActivity : Activity() {
     private fun spinnerAdapter(items: List<String>) =
         ArrayAdapter(this, R.layout.spinner_item, items).apply { setDropDownViewResource(R.layout.spinner_dropdown_item) }
 
-    // Slide-up sheet for adding a bill (existing == null) or editing one.
-    private fun openBillSheet(existing: Bill?) {
+    // Slide-up sheet for adding a bill (tapped == null) or editing one.
+    private fun openBillSheet(tapped: Bill?) {
+        if (isFinishing || isDestroyed) return // a late tap or posted shortcut on a screen that's going away
         if (sheetDialog?.isShowing == true) return // a quick double-tap shouldn't stack two sheets
-        if (existing != null && existing !in bills) return // tapped while it was being deleted
+        // The latest copy of the bill (a sync may have marked it paid since the row was drawn); none if it was
+        // deleted meanwhile.
+        val existing = tapped?.let { bills.getOrNull(indexOfBill(it)) ?: return }
         val today = LocalDate.now()
         var closeSheet: () -> Unit = {}
         val dialog = object : Dialog(this, R.style.SheetDialog) {
@@ -2159,7 +2368,7 @@ class MainActivity : Activity() {
             if (name.isEmpty()) return null
             val freq = Freq.values()[freqSpinner.selectedItemPosition]
             val date = pickedDate?.takeIf { it != shown } ?: existing?.let { if (freq == it.freq) it.date else shown } ?: return null
-            return Bill(name, amount, freq, date, existing?.paid ?: emptyMap())
+            return Bill(name, amount, freq, date, existing?.paid ?: emptyMap(), existing?.id ?: Any())
         }
         fun updateLabels() {
             val freq = Freq.values()[freqSpinner.selectedItemPosition]
@@ -2178,12 +2387,13 @@ class MainActivity : Activity() {
 
         fun pickDate() {
             val start = pickedDate ?: shown ?: today
-            DatePickerDialog(this, { _, year, month, day ->
-                pickedDate = LocalDate.of(year, month + 1, day)
-                dateField.text = pickedDate!!.format(dayFormat)
+            present(DatePickerDialog(this, { _, year, month, day ->
+                val picked = LocalDate.of(year, month + 1, day)
+                pickedDate = picked
+                dateField.text = picked.format(dayFormat)
                 dateField.error = null
                 updateLabels()
-            }, start.year, start.monthValue - 1, start.dayOfMonth).show()
+            }, start.year, start.monthValue - 1, start.dayOfMonth))
         }
         dateField.setOnClickListener { pickDate() }
         if (existing == null) {
@@ -2218,25 +2428,35 @@ class MainActivity : Activity() {
         // Saves the bill (with Undo) and closes the sheet.
         fun commit(bill: Bill, quiet: Boolean = false, then: (Bill) -> Unit = {}) {
             val before = bills.toList()
+            var saved = bill
             if (existing == null) {
                 bills.add(bill)
             } else {
-                val index = bills.indexOf(existing)
-                if (index >= 0) bills[index] = bill // gone already (deleted meanwhile): don't bring it back
+                val index = indexOfBill(existing)
+                if (index >= 0) { // gone already (deleted meanwhile): don't bring it back
+                    // Keep paid marks a bank sync added while the sheet was open, plus any added here.
+                    val current = bills[index]
+                    saved = Bill(bill.name, bill.amount, bill.freq, bill.date, current.paid + (bill.paid - existing.paid.keys), bill.id)
+                    bills[index] = saved
+                }
             }
+            // Transactions assigned to this bill by hand follow it to its new name.
+            val renamedFrom = existing?.name?.takeIf { it != saved.name }
+            val movedTxns = if (renamedFrom != null) bank.renameBillOverrides(renamedFrom, saved.name) else emptySet()
             save()
             haptic(saveButton)
             close {
                 refresh()
                 if (!quiet) {
-                    showSnack(if (existing == null) "${bill.name} added" else "${bill.name} saved") {
+                    showSnack(if (existing == null) "${saved.name} added" else "${saved.name} saved") {
                         bills.clear()
                         bills.addAll(before)
+                        for (txnId in movedTxns) bank.setOverride(txnId, "bill:$renamedFrom")
                         save()
                         refresh()
                     }
                 }
-                then(bill)
+                then(saved)
             }
         }
 
@@ -2271,7 +2491,7 @@ class MainActivity : Activity() {
                     .setMessage("Moving the date skips that one. If you paid it, it's marked paid so the money isn't counted as spending.")
                     .setPositiveButton("Yes, it's paid") { _, _ -> commit(bill.withPaid(movedFrom, today)) }
                     .setNegativeButton("No, skip it") { _, _ -> commit(bill) }
-                    .show()
+                    .present()
             } else {
                 commit(bill)
             }
@@ -2308,17 +2528,19 @@ class MainActivity : Activity() {
 
     // Marks the bill's next due date paid as of today (paid early, or autopay already took it). If a balance
     // was entered today, asks whether that balance already reflects it.
-    private fun markPaid(bill: Bill) {
-        if (bill !in bills) return
+    private fun markPaid(tapped: Bill) {
+        val bill = bills.getOrNull(indexOfBill(tapped)) ?: return
         val today = LocalDate.now()
         val due = bill.nextDue(today)
         fun apply(takeOff: Boolean) {
-            val index = bills.indexOf(bill)
+            // Looked up again: a sync may have changed the bill while the question was open.
+            val index = indexOfBill(bill)
             if (index < 0) return
+            val current = bills[index]
             val before = balanceState()
             val billsBefore = bills.toList()
-            val ahead = bill.paid.keys.any { !it.isBefore(today) }
-            bills[index] = bill.withPaid(due, today)
+            val ahead = current.paid.keys.any { !it.isBefore(today) }
+            bills[index] = current.withPaid(due, today)
             if (takeOff) {
                 balance = cents(balance - bill.amount)
                 if (weekStartTaken == today && !weekStartProjected) weekStartBalance = cents(weekStartBalance - bill.amount)
@@ -2342,37 +2564,38 @@ class MainActivity : Activity() {
                 .setPositiveButton("Yes, it's out") { _, _ -> apply(takeOff = false) }
                 .setNegativeButton("No, take it off") { _, _ -> apply(takeOff = true) }
                 .setOnCancelListener { refresh() }
-                .show()
+                .present()
         } else {
             apply(takeOff = false)
         }
     }
 
-    private fun unmarkPaid(bill: Bill, due: LocalDate) {
-        val index = bills.indexOf(bill)
+    private fun unmarkPaid(tapped: Bill, due: LocalDate) {
+        val index = indexOfBill(tapped)
         if (index < 0) return
+        val bill = bills[index]
+        val paidOn = bill.paid[due] ?: return // not marked paid any more
         // If the bank's transaction was taken as this payment, it isn't: count it as spending instead.
         val txnId = if (bank.isLinked) billMatches().entries.firstOrNull { it.value == (index to due) }?.key else null
         txnId?.let { bank.setOverride(it, "spend") }
-        val updated = bill.withoutPaid(due)
-        bills[index] = updated
+        bills[index] = bill.withoutPaid(due)
         save()
         refresh()
         showSnack("${bill.name} · ${due.format(shortDate)} no longer marked paid") {
-            val i = bills.indexOf(updated)
+            val i = indexOfBill(bill)
             if (i >= 0) {
                 txnId?.let { bank.setOverride(it, null) }
-                bills[i] = bill
+                bills[i] = bills[i].withPaid(due, paidOn)
                 save()
                 refresh()
             }
         }
     }
 
-    private fun deleteBill(bill: Bill) {
-        val index = bills.indexOf(bill)
+    private fun deleteBill(tapped: Bill) {
+        val index = indexOfBill(tapped)
         if (index < 0) return
-        bills.removeAt(index)
+        val bill = bills.removeAt(index)
         save()
         refresh()
         haptic(billList)
@@ -2426,6 +2649,7 @@ class MainActivity : Activity() {
             )
         }
         if (a11y.isTouchExplorationEnabled) timeout = maxOf(timeout, 20_000)
+        snackHideAt = System.currentTimeMillis() + timeout
         handler.postDelayed(hideSnack, timeout.toLong())
     }
 
@@ -2488,6 +2712,7 @@ class MainActivity : Activity() {
             if (busy) return@setOnTouchListener true
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    rowHeld = true
                     downX = event.rawX
                     downY = event.rawY
                     swiping = false
@@ -2515,22 +2740,37 @@ class MainActivity : Activity() {
                 MotionEvent.ACTION_UP -> {
                     view.isPressed = false
                     val dx = view.translationX
+                    // A swipe that goes through keeps redraws held until the bill is deleted / marked paid, so the
+                    // row doesn't come back for a moment; actions are skipped on a screen that was replaced.
                     when {
                         swiping && -dx > view.width * 0.35f -> {
                             busy = true
                             view.animate().translationX(-view.width.toFloat()).setDuration(160)
-                                .withEndAction { onDelete() }.start()
+                                .withEndAction {
+                                    if (!isDestroyed) onDelete()
+                                    releaseRow()
+                                }.start()
                         }
                         swiping && dx > view.width * 0.35f -> {
                             busy = true
                             view.animate().translationX(view.width.toFloat()).setDuration(160)
-                                .withEndAction { onPaid() }.start()
+                                .withEndAction {
+                                    if (!isDestroyed) onPaid()
+                                    releaseRow()
+                                }.start()
                         }
-                        swiping -> settle()
-                        !moved -> view.performClick()
+                        swiping -> {
+                            releaseRow()
+                            settle()
+                        }
+                        else -> {
+                            releaseRow()
+                            if (!moved) view.performClick()
+                        }
                     }
                 }
                 MotionEvent.ACTION_CANCEL -> {
+                    releaseRow()
                     view.isPressed = false
                     settle()
                 }
@@ -2605,7 +2845,8 @@ class MainActivity : Activity() {
 
     private fun plain(amount: Double) = amount.toBigDecimal().stripTrailingZeros().toPlainString()
 
-    // What goes in an amount field: "1200" or "80.50".
+    // What goes in an amount field: "1200" or "80.50". Always a '.': the amount fields (numberDecimal) only let
+    // digits and '.' be typed, whatever the phone's language.
     private fun amountText(amount: Double) =
         if (amount == Math.rint(amount)) plain(amount) else amount.toBigDecimal().setScale(2, RoundingMode.HALF_UP).toPlainString()
 
@@ -2620,8 +2861,9 @@ class MainActivity : Activity() {
         .put("freq", bill.freq.name).put("date", bill.date.toString())
         .put("paid", JSONObject().apply { for ((due, on) in bill.paid) put(due.toString(), on.toString()) })
 
-    // A saved bill, or null if it can't be read (it's skipped instead of crashing the app).
-    private fun billFromJson(json: JSONObject): Bill? = runCatching {
+    // A saved bill, or null if it can't be read: damaged, or written by a newer version (load() keeps those as
+    // they are). Only "this data is unreadable" errors are caught here.
+    private fun billFromJson(json: JSONObject): Bill? = try {
         val (freq, date) = if (json.has("freq")) {
             Freq.valueOf(json.getString("freq")) to LocalDate.parse(json.getString("date"))
         } else {
@@ -2635,50 +2877,105 @@ class MainActivity : Activity() {
         val paid = mutableMapOf<LocalDate, LocalDate>()
         json.optJSONObject("paid")?.let { marks ->
             for (key in marks.keys()) {
-                val due = runCatching { LocalDate.parse(key) }.getOrNull() ?: continue
-                val on = runCatching { LocalDate.parse(marks.getString(key)) }.getOrNull() ?: continue
+                val due = savedDate(key) ?: continue
+                val on = savedDate(marks.optString(key)) ?: continue
                 if (!due.isBefore(cutoff) || !on.isBefore(cutoff)) paid[due] = on
             }
         }
-        if (!amount.isFinite()) null else Bill(json.getString("name"), amount, freq, date, paid)
-    }.getOrNull()
+        if (!amount.isFinite() || savedDate(date.toString()) == null) null
+        else Bill(json.getString("name"), amount, freq, date, paid)
+    } catch (e: JSONException) {
+        null
+    } catch (e: DateTimeException) {
+        null
+    } catch (e: IllegalArgumentException) { // an unknown repeat (Freq.valueOf)
+        null
+    }
+
+    // A saved date ("2026-10-06"), or null if it's unreadable or outside 1900-2200. Only damaged data is that far
+    // out, and dates like that would make the date math run for ages.
+    private fun savedDate(text: String?): LocalDate? {
+        if (text == null) return null
+        val date = try {
+            LocalDate.parse(text)
+        } catch (e: DateTimeParseException) {
+            return null
+        }
+        return date.takeIf { it.year in 1900..2200 }
+    }
+
+    // Saved bills this version can't read (damaged, or written by a newer version). They're written back untouched
+    // on every save instead of being dropped, so nothing is lost for good.
+    private val unreadableBills = mutableListOf<Any>()
 
     private fun load() {
-        fun date(key: String) = prefs.getString(key, null)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-        fun number(key: String) = prefs.getString(key, null)?.toDoubleOrNull()?.takeIf { it.isFinite() }
+        // A value of the wrong type can only come from a damaged file. It's treated as missing rather than crashing
+        // the app before the update banner (which could bring a fix) shows up.
+        fun <T> read(key: String, get: () -> T): T? = try {
+            get()
+        } catch (e: ClassCastException) {
+            Log.w("Budget", "Ignoring saved \"$key\": wrong type")
+            null
+        }
+        fun text(key: String) = read(key) { prefs.getString(key, null) }
+        fun date(key: String) = savedDate(text(key))
+        fun number(key: String) = text(key)?.toDoubleOrNull()?.takeIf { it.isFinite() }
+        fun flag(key: String) = read(key) { prefs.getBoolean(key, false) } ?: false
         balance = number("balance") ?: 0.0
         balanceUpdated = date("balance_updated")
         pendingPay = date("pending_pay")
         earlyPay = date("early_pay")
         weeklyIncome = number("weekly_income") ?: 0.0
-        payday = runCatching { DayOfWeek.of(prefs.getInt("payday", DayOfWeek.FRIDAY.value)) }.getOrDefault(DayOfWeek.FRIDAY)
-        billsNone = prefs.getBoolean("bills_none", false)
-        runCatching {
-            val saved = JSONArray(prefs.getString("bills", null) ?: "[]")
-            for (i in 0 until saved.length()) saved.optJSONObject(i)?.let { json -> billFromJson(json)?.let { bills.add(it) } }
+        payday = read("payday") { prefs.getInt("payday", DayOfWeek.FRIDAY.value) }?.takeIf { it in 1..7 }
+            ?.let { DayOfWeek.of(it) } ?: DayOfWeek.FRIDAY
+        billsNone = flag("bills_none")
+        text("bills")?.let { saved ->
+            try {
+                val list = JSONArray(saved)
+                for (i in 0 until list.length()) {
+                    val item = list.opt(i)
+                    val bill = (item as? JSONObject)?.let { billFromJson(it) }
+                    if (bill != null) bills += bill else if (item != null) unreadableBills += item
+                }
+                if (unreadableBills.isNotEmpty()) Log.w("Budget", "Keeping ${unreadableBills.size} saved bills this version can't read")
+            } catch (e: JSONException) {
+                keepUnreadable("bills", saved)
+            }
         }
 
         // Keep paycheck changes from this pay week on, and any the last balance still depends on.
         val periodStart = lastPayday(LocalDate.now())
         val keepFrom = balanceUpdated?.takeIf { it.isBefore(periodStart) } ?: periodStart
-        runCatching {
-            val changes = JSONObject(prefs.getString("paycheck_changes", null) ?: "{}")
-            for (key in changes.keys()) {
-                val day = runCatching { LocalDate.parse(key) }.getOrNull() ?: continue
-                val amount = changes.optDouble(key)
-                if (!day.isBefore(keepFrom) && amount.isFinite()) paycheckChanges[day] = amount
+        text("paycheck_changes")?.let { saved ->
+            try {
+                val changes = JSONObject(saved)
+                for (key in changes.keys()) {
+                    val day = savedDate(key) ?: continue
+                    val amount = changes.optDouble(key)
+                    if (!day.isBefore(keepFrom) && amount.isFinite()) paycheckChanges[day] = amount
+                }
+            } catch (e: JSONException) {
+                keepUnreadable("paycheck_changes", saved)
             }
         }
 
         weekStart = date("week_start")
         weekStartBalance = number("week_start_balance") ?: 0.0
         weekStartTaken = date("week_start_taken")
-        weekStartProjected = prefs.getBoolean("week_start_projected", false)
+        weekStartProjected = flag("week_start_projected")
+    }
+
+    // A whole saved list that isn't valid JSON is copied aside before the next save replaces it, so it can still be
+    // recovered (it's included in Android's backup like the rest).
+    private fun keepUnreadable(key: String, raw: String) {
+        Log.w("Budget", "Saved \"$key\" is unreadable; keeping a copy")
+        if (!prefs.contains("${key}_unreadable")) prefs.edit().putString("${key}_unreadable", raw).apply()
     }
 
     private fun save() {
         val saved = JSONArray()
         for (bill in bills) saved.put(billToJson(bill))
+        for (item in unreadableBills) saved.put(item)
         val changes = JSONObject()
         for ((date, amount) in paycheckChanges) changes.put(date.toString(), amount)
         prefs.edit()
@@ -2700,135 +2997,287 @@ class MainActivity : Activity() {
 
     // ---------- Updates ----------
 
-    // A download that died (no signal, app closed) can leave a half-written install behind; clear those.
+    // A download that died (no signal, app closed) can leave a half-written install behind; clear those. Once per
+    // app process, and never the one this process is still writing or waiting on: a home-screen shortcut starts a
+    // fresh screen in the middle of an update, too.
     private fun clearStaleInstallSessions() {
-        thread {
-            runCatching {
-                val installer = packageManager.packageInstaller
-                for (session in installer.mySessions) runCatching { installer.abandonSession(session.sessionId) }
+        if (Running.sessionsCleared) return
+        Running.sessionsCleared = true
+        val installer = packageManager.packageInstaller
+        thread(name = "budget-clear-installs") {
+            for (session in installer.mySessions) {
+                if (session.sessionId != Running.sessionId) abandon(installer, session.sessionId)
             }
         }
     }
 
-    // Looks at the latest GitHub Release; if it's newer than this build, shows the update banner.
+    // Looks at the latest GitHub Release; if it's newer than this build, shows the update banner. A new screen
+    // (rotation, dark mode) reuses a check from the last half hour instead of asking GitHub again.
     private fun checkForUpdate(fromUser: Boolean = false) {
+        if (!fromUser && Running.updateCheckedAt > 0 && System.currentTimeMillis() - Running.updateCheckedAt < 30 * 60_000L) {
+            showUpdateState()
+            return
+        }
         val current = BuildConfig.VERSION_NAME
-        updateStatusText = "checking…"
-        thread {
+        Running.updateStatus = "checking…"
+        thread(name = "budget-update-check") {
             val result = runCatching {
                 val conn = URL("https://api.github.com/repos/$REPO/releases/latest").openConnection() as HttpURLConnection
-                conn.connectTimeout = 15_000
-                conn.readTimeout = 15_000
-                val release = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
-                val latest = release.getString("tag_name").removePrefix("v")
-                val assets = release.getJSONArray("assets")
-                val apk = (0 until assets.length()).map { assets.getJSONObject(it) }
-                    .firstOrNull { it.getString("name").endsWith(".apk") }
-                if (apk != null && isNewer(latest, current)) latest to apk.getString("browser_download_url") else null
-            }
-            runOnUiThread {
-                if (isDestroyed) return@runOnUiThread
-                val update = result.getOrNull()
-                when {
-                    result.isFailure -> updateStatusText = "couldn't check"
-                    update == null -> updateStatusText = "up to date"
-                    else -> {
-                        latestVersion = update.first
-                        updateUrl = update.second
-                        updateStatusText = "version ${update.first} is ready"
-                        if (!downloading) updateText.text = "Version ${update.first} is ready"
-                        updateBanner.visibility = View.VISIBLE
+                try {
+                    conn.connectTimeout = 15_000
+                    conn.readTimeout = 15_000
+                    if (conn.responseCode != HttpURLConnection.HTTP_OK) throw IOException("update check: HTTP ${conn.responseCode}")
+                    val release = JSONObject(readUpTo(conn.inputStream, 1 shl 20))
+                    val latest = release.getString("tag_name").removePrefix("v")
+                    val assets = release.getJSONArray("assets")
+                    val apk = (0 until assets.length()).map { assets.getJSONObject(it) }
+                        .firstOrNull { it.getString("name").endsWith(".apk") }
+                    if (apk != null && isNewer(latest, current)) {
+                        Release(latest, apk.getString("browser_download_url"), apk.optLong("size", -1L))
+                    } else {
+                        null
                     }
+                } finally {
+                    conn.disconnect()
                 }
+            }
+            Running.main.post {
+                val update = result.getOrNull()
+                result.exceptionOrNull()?.let { Log.w("Budget", "Update check failed: ${it.javaClass.name}") }
+                Running.updateStatus = when {
+                    result.isFailure -> "couldn't check"
+                    update == null -> "up to date"
+                    // A debug build is its own app (com.gh00ul.budget.debug), so it can't install a release
+                    // over itself; it only says one is out.
+                    BuildConfig.DEBUG -> "version ${update.version} is out; debug builds don't update"
+                    else -> "version ${update.version} is ready"
+                }
+                if (result.isSuccess) {
+                    Running.update = update
+                    Running.updateCheckedAt = System.currentTimeMillis()
+                }
+                val screen = Running.liveScreen() ?: return@post
+                screen.showUpdateState()
                 if (fromUser) {
                     val message = when {
                         result.isFailure -> "Couldn't check for updates. Check your connection."
                         update == null -> "You're up to date (version $current)."
-                        else -> "Version ${update.first} is ready. Tap Update on Summary."
+                        BuildConfig.DEBUG -> "Version ${update.version} is out. Debug builds don't update themselves."
+                        else -> "Version ${update.version} is ready. Tap Update on Summary."
                     }
-                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                    Toast.makeText(screen, message, Toast.LENGTH_LONG).show()
                 }
             }
         }
     }
 
-    private fun isNewer(latest: String, current: String): Boolean {
-        val a = latest.split(".").map { it.toIntOrNull() ?: 0 }
-        val b = current.split(".").map { it.toIntOrNull() ?: 0 }
-        for (i in 0 until maxOf(a.size, b.size)) {
-            val x = a.getOrElse(i) { 0 }
-            val y = b.getOrElse(i) { 0 }
-            if (x != y) return x > y
+    // The update banner, from what the last check and download left in Running.
+    private fun showUpdateState() {
+        val release = Running.update?.takeIf { !BuildConfig.DEBUG }
+        updateBanner.visibility = if (release != null) View.VISIBLE else View.GONE
+        if (release == null) return
+        when {
+            Running.downloading -> {
+                updateText.text = "Downloading…"
+                updateButton.isEnabled = false
+            }
+            else -> {
+                updateText.text = "Version ${release.version} is ready"
+                updateButton.isEnabled = true
+            }
         }
-        return false
     }
 
     // Streams the new APK into Android's installer; Android then asks you to confirm the update.
     private fun installUpdate() {
-        val url = updateUrl ?: return
-        if (downloading) return
+        val release = Running.update?.takeIf { !BuildConfig.DEBUG } ?: return
+        if (Running.downloading) return
         if (!packageManager.canRequestPackageInstalls()) {
             Toast.makeText(this, "Allow Budget to install updates, then tap Update again", Toast.LENGTH_LONG).show()
-            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+            try {
+                startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+            } catch (e: ActivityNotFoundException) {
+                // Some phones (work profiles, managed devices) don't have this screen.
+                Toast.makeText(this, "Turn on Settings › Apps › Budget › Install unknown apps, then tap Update again",
+                    Toast.LENGTH_LONG).show()
+            }
             return
         }
 
-        downloading = true
-        updateButton.isEnabled = false
-        updateText.text = "Downloading…"
-        thread {
-            val installer = packageManager.packageInstaller
+        Running.downloading = true
+        showUpdateState()
+        val app = applicationContext // not this screen: the download can outlive it
+        val installer = app.packageManager.packageInstaller
+        thread(name = "budget-update-download") {
             var sessionId = -1
             val result = runCatching {
-                val conn = URL(url).openConnection() as HttpURLConnection
-                conn.connectTimeout = 20_000
-                conn.readTimeout = 30_000
-                if (conn.responseCode != HttpURLConnection.HTTP_OK) error("download failed (${conn.responseCode})")
-                val length = conn.contentLengthLong.takeIf { it > 0 } ?: -1L
-                sessionId = installer.createSession(PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL))
-                installer.openSession(sessionId).use { session ->
-                    conn.inputStream.use { input ->
-                        session.openWrite("budget.apk", 0, length).use { output ->
-                            input.copyTo(output)
-                            session.fsync(output)
+                val conn = URL(release.url).openConnection() as HttpURLConnection
+                try {
+                    conn.connectTimeout = 20_000
+                    conn.readTimeout = 30_000
+                    if (conn.responseCode != HttpURLConnection.HTTP_OK) throw IOException("download: HTTP ${conn.responseCode}")
+                    val length = conn.contentLengthLong.takeIf { it > 0 } ?: release.size.takeIf { it > 0 } ?: -1L
+                    val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+                    params.setAppPackageName(app.packageName) // only ever installs Budget itself
+                    sessionId = installer.createSession(params)
+                    Running.sessionId = sessionId
+                    installer.openSession(sessionId).use { session ->
+                        val copied = conn.inputStream.use { input ->
+                            session.openWrite("budget.apk", 0, length).use { output ->
+                                input.copyTo(output).also { session.fsync(output) }
+                            }
                         }
+                        // A connection that drops can end the stream early without an error; don't install half an APK.
+                        if (release.size > 0 && copied != release.size) throw IOException("download: incomplete")
+                        val callback = PendingIntent.getBroadcast(
+                            app, sessionId, Intent(app, InstallReceiver::class.java),
+                            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+                        )
+                        session.commit(callback.intentSender)
                     }
-                    val callback = PendingIntent.getBroadcast(
-                        this, sessionId, Intent(this, InstallReceiver::class.java),
-                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
-                    )
-                    session.commit(callback.intentSender)
+                } finally {
+                    conn.disconnect()
                 }
             }
-            if (result.isFailure && sessionId >= 0) runCatching { installer.abandonSession(sessionId) }
-            runOnUiThread {
-                downloading = false
-                if (isDestroyed) return@runOnUiThread
-                updateButton.isEnabled = true
-                updateText.text = if (result.isFailure) "Update failed. Check your connection and try again." else "Installing…"
+            if (result.isFailure && sessionId >= 0) {
+                abandon(installer, sessionId)
+                Running.sessionId = -1
+            }
+            result.exceptionOrNull()?.let { Log.w("Budget", "Update download failed: ${it.javaClass.name}") }
+            Running.main.post {
+                Running.downloading = false
+                val screen = Running.liveScreen() ?: return@post
+                screen.showUpdateState()
+                screen.updateText.text = if (result.isFailure) "Update failed. Check your connection and try again." else "Installing…"
             }
         }
     }
 }
 
+// "3.10.0" is newer than "3.9.2". (Not on the screen class, so the update-check thread doesn't hold a screen.)
+private fun isNewer(latest: String, current: String): Boolean {
+    val a = latest.split(".").map { it.toIntOrNull() ?: 0 }
+    val b = current.split(".").map { it.toIntOrNull() ?: 0 }
+    for (i in 0 until maxOf(a.size, b.size)) {
+        val x = a.getOrElse(i) { 0 }
+        val y = b.getOrElse(i) { 0 }
+        if (x != y) return x > y
+    }
+    return false
+}
+
+// A GitHub release that's newer than this build. size = the APK's size in bytes, or -1 if GitHub didn't say.
+private class Release(val version: String, val url: String, val size: Long)
+
+// Work that outlives one screen. Rotation, dark mode, font size, split-screen resizing and the home-screen
+// shortcuts (which always start a fresh screen) replace MainActivity while a bank sync, a bank connect or an
+// update download keeps running, so their state lives here, once per app process. Main thread only (except
+// sessionId): worker threads hand results back through `main`, never runOnUiThread, which would keep the old
+// screen alive and deliver to it rather than to the current one.
+private object Running {
+    val main = Handler(Looper.getMainLooper())
+    var screen: WeakReference<MainActivity>? = null // the newest screen, where results go
+    var resumed: WeakReference<Activity>? = null // the screen that's on top right now, if any
+
+    var syncing: String? = null // the bank connection a sync is running for
+    var syncAnnounce = false // "Sync now" was asked for: say how it went
+    var connectAttempts = 0
+    var connecting = 0 // the "Connect your bank" attempt still waiting for the server; 0 = none
+
+    var update: Release? = null // from the last update check
+    var updateCheckedAt = 0L
+    var updateStatus = "checking…" // for Settings
+    var downloading = false
+    @Volatile var sessionId = -1 // the install session this process is writing or waiting on
+    var sessionsCleared = false
+    var installPrompt: Intent? = null // Android's "Update this app?" screen, waiting for Budget to be on screen
+    var installFailure: String? = null // why the last install failed, if no screen was there to say so
+
+    fun liveScreen() = screen?.get()?.takeIf { !it.isFinishing && !it.isDestroyed }
+
+    // Since Android 10 (and the 2023 security fix on older versions), the installer's result can only open the
+    // confirm screen while Budget is on screen. If it isn't, the screen opens the next time Budget is.
+    fun showInstallPrompt(context: Context, prompt: Intent) {
+        prompt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val top = resumed?.get()
+        if (top == null && Build.VERSION.SDK_INT >= 29) {
+            installPrompt = prompt
+            return
+        }
+        try {
+            (top ?: context).startActivity(prompt)
+        } catch (e: ActivityNotFoundException) { // the installer is disabled or hidden by a device policy
+            Log.w("Budget", "Couldn't open the install prompt: ${e.javaClass.name}")
+            installFailed(context, "This phone doesn't let Budget open the installer. Install the update from the releases page.")
+        } catch (e: SecurityException) { // Android refused the launch (e.g. its intent-redirect checks)
+            Log.w("Budget", "Couldn't open the install prompt: ${e.javaClass.name}")
+            installFailed(context, "This phone doesn't let Budget open the installer. Install the update from the releases page.")
+        }
+    }
+
+    // Toasts from the background are dropped on Android 13+, so a failure waits for the next screen if needed.
+    fun installFailed(context: Context, message: String) {
+        val top = resumed?.get()
+        if (top != null) Toast.makeText(top, message, Toast.LENGTH_LONG).show() else installFailure = message
+    }
+}
+
+// Abandons an install session; one that's already gone is fine.
+private fun abandon(installer: PackageInstaller, sessionId: Int) {
+    try {
+        installer.abandonSession(sessionId)
+    } catch (e: SecurityException) {
+        Log.w("Budget", "Couldn't abandon install session: ${e.javaClass.name}") // finished or not ours any more
+    }
+}
+
+// Reads a response body, refusing one larger than `limit` bytes.
+private fun readUpTo(input: InputStream, limit: Int): String = input.use { stream ->
+    val out = ByteArrayOutputStream()
+    val buffer = ByteArray(8192)
+    while (true) {
+        val n = stream.read(buffer)
+        if (n < 0) break
+        if (out.size() + n > limit) throw IOException("response too large")
+        out.write(buffer, 0, n)
+    }
+    out.toString("UTF-8")
+}
+
 // Receives the installer's result and shows Android's "Do you want to update this app?" prompt.
 class InstallReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        when (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
-            PackageInstaller.STATUS_PENDING_USER_ACTION -> {
-                // The typed getParcelableExtra is API 33+ and unreliable on 33 itself, so it's used from 34 on.
-                val prompt = if (Build.VERSION.SDK_INT >= 34) {
-                    intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
-                } else {
-                    @Suppress("DEPRECATION")
-                    intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
-                } ?: return
-                context.startActivity(prompt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)
+        if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+            // The typed getParcelableExtra is API 33+ and unreliable on 33 itself, so it's used from 34 on.
+            val prompt = if (Build.VERSION.SDK_INT >= 34) {
+                intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
             }
-            PackageInstaller.STATUS_SUCCESS, PackageInstaller.STATUS_FAILURE_ABORTED -> Unit
-            else -> Toast.makeText(
-                context, "Update failed: " + intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE), Toast.LENGTH_LONG
-            ).show()
+            if (prompt != null) {
+                // This process may have just been started for this result; the session is still in use.
+                Running.sessionId = intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, Running.sessionId)
+                Running.showInstallPrompt(context, prompt)
+                return
+            }
+            Log.w("Budget", "Installer asked for confirmation without a prompt")
+            Running.installFailed(context, "The update didn't install. Tap Update to try again.")
+            return
         }
+        if (intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1) == Running.sessionId) Running.sessionId = -1
+        if (status == PackageInstaller.STATUS_SUCCESS || status == PackageInstaller.STATUS_FAILURE_ABORTED) return
+        Log.w("Budget", "Update install failed with status $status") // the status code only; the message can be long
+        Running.installFailed(context, when (status) {
+            PackageInstaller.STATUS_FAILURE_BLOCKED ->
+                "Your phone's security settings blocked the update. On Samsung phones, check Settings › Security and privacy › Auto Blocker."
+            PackageInstaller.STATUS_FAILURE_CONFLICT ->
+                "This update can't replace the installed Budget. Don't uninstall Budget (that deletes your data); get the update from the releases page instead."
+            PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> "This update doesn't work on this phone."
+            PackageInstaller.STATUS_FAILURE_STORAGE -> "Not enough storage for the update. Free up some space and try again."
+            PackageInstaller.STATUS_FAILURE_INVALID -> "The downloaded update was damaged. Tap Update to try again."
+            else -> "The update didn't install. Tap Update to try again."
+        })
     }
 }
