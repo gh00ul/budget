@@ -196,3 +196,26 @@ Also from the review: `isUsableKey` allowed only `!`..`~`, so an existing key co
 - **Phase 5**: P-6 (a sync cut off because the app went to the background is saved as an error), F-24 (whole-state Undo vs. a sync landing in its window), P-7 (cloud backup without encryption — owner's choice), orphan keys from v2.0/v2.3.
 - **Phase 7 (UI)**: R-1 (High: money amounts split mid-number at the owner's font size), R-2…R-11, U-2 TalkBack focus, U-4 (sheet under the status bar), U-5, U-7…U-14, F-28.
 - **Left on purpose**: F-25 (predictive back — must be migrated before targetSdk 36), F-29 (`refresh()` safety net kept), T-5 (6–18 ms prefs load at cold start), L-6 (shortcuts always start a fresh screen — platform behavior; keeping open work would need a trampoline activity), U-15 (a half-typed bill sheet is lost on rotation), F-30 (cleartext to localhost — the fake-bank test path), a choice made on a *pending* transaction is lost when it posts under a new ID (the server doesn't pass Plaid's link through — needs a server change).
+
+---
+
+## Phase 4 — Runtime verification
+
+**Skipped by the owner's choice (2026-10-06).** Only a Galaxy Tab S7 was connected (not the S25 Ultra); the owner chose no on-device testing, so no Device Agent ran and no adb command was issued after the initial `adb devices -l`. `connectedAndroidTest` was not run (there are no instrumented tests).
+
+Code change made for future runs (lead):
+
+- **StrictMode in debug builds only** (`enableStrictModeInDebug()`, once per process, `penaltyLog` only — never crashes): thread policy `detectAll`; VM policy: activity/closable/registration/SQLite leaks, file-URI exposure, cleartext network, content-URI permission, non-SDK API use (28+), credential-protected storage while locked (29+), unsafe intent launch (31+). Untagged-socket detection is left out (every `HttpURLConnection` request would trip it). Expected, known entries: a disk read when preferences first load in `onCreate` (T-5), and on API 31+ an "unsafe intent launch" for the installer's own confirm intent (that launch is the documented PackageInstaller flow).
+
+### Still needs checking on a device (S25 Ultra preferred)
+
+Build and install the debug app next to the release one — see "Build & install" at the end. Watch `adb logcat --pid=$(adb shell pidof com.gh00ul.budget.debug)` and `adb logcat -s Budget StrictMode`.
+
+1. **Every screen once** (light + dark, font scale 1.0 and the owner's large font): Summary, Paydays, Bills, the bill sheet (add/edit, date picker, mark paid, unmark, delete), every balance question, Settings, Connect your bank, bank status, purchases + "change how it counts", the explain dialog, the update banner.
+2. **Rotation / dark-mode switch / split-screen resize while**: a bank sync runs (one sync, result shown on the new screen); "Connecting…" (account picker appears on the new screen; Cancel before rotating stops it); the APK downloads (banner keeps "Downloading…", one install prompt); any dialog is open (no "leaked window" in logcat); a balance question is open (asked again).
+3. **Shortcuts**: "Update balance" / "Add bill" from cold start and while open; then tap the app icon → one screen, not two (`adb shell dumpsys activity activities | grep budget`); reopen from Recents → shortcut not replayed.
+4. **Update flow**: on the release app only (debug builds don't offer updates). Start Update, press Home during the download → the prompt appears on returning to Budget; cancel the prompt → Update can be tapped again; Samsung Auto Blocker on → readable message.
+5. **Process death**: background the app with a delete-Undo or a balance question showing, `adb shell am kill com.gh00ul.budget.debug`, reopen from Recents.
+6. **Midnight**: leave the app open across midnight → date and "due in" days move on.
+7. **Bank sync** (fake server via `adb reverse`, as before): sync, disconnect mid-sync (no data comes back), reconnect mid-sync, swipe a bill while a sync lands, a server reply without `transactions` (error, choices kept).
+8. **Large font (R-1…R-7)** after Phase 7: Summary rows with ≥ $1,000 due, the message bar, bill rows, a changed paycheck row.

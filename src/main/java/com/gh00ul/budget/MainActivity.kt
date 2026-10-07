@@ -24,6 +24,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.StrictMode
 import android.provider.Settings
 import android.text.Editable
 import android.text.InputType
@@ -324,6 +325,7 @@ class MainActivity : Activity() {
     private val undoButton by view<View>(R.id.undo_button)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableStrictModeInDebug()
         super.onCreate(savedInstanceState)
         Running.screen = WeakReference(this)
         setContentView(R.layout.activity_main)
@@ -3192,6 +3194,7 @@ private object Running {
     var sessionsCleared = false
     var installPrompt: Intent? = null // Android's "Update this app?" screen, waiting for Budget to be on screen
     var installFailure: String? = null // why the last install failed, if no screen was there to say so
+    var strictMode = false // debug builds: StrictMode is on for this process
 
     fun liveScreen() = screen?.get()?.takeIf { !it.isFinishing && !it.isDestroyed }
 
@@ -3220,6 +3223,27 @@ private object Running {
         val top = resumed?.get()
         if (top != null) Toast.makeText(top, message, Toast.LENGTH_LONG).show() else installFailure = message
     }
+}
+
+// Debug builds only (once per process): log, never crash on, disk or network work on the main thread, leaked
+// objects and similar mistakes, so they show up in `adb logcat -s StrictMode` while testing. Untagged-socket
+// checks are left out: every plain HttpURLConnection request would trip them.
+private fun enableStrictModeInDebug() {
+    if (!BuildConfig.DEBUG || Running.strictMode) return
+    Running.strictMode = true
+    StrictMode.setThreadPolicy(StrictMode.ThreadPolicy.Builder().detectAll().penaltyLog().build())
+    val vm = StrictMode.VmPolicy.Builder()
+        .detectActivityLeaks()
+        .detectLeakedClosableObjects()
+        .detectLeakedRegistrationObjects()
+        .detectLeakedSqlLiteObjects()
+        .detectFileUriExposure()
+        .detectCleartextNetwork()
+        .detectContentUriWithoutPermission()
+    if (Build.VERSION.SDK_INT >= 28) vm.detectNonSdkApiUsage()
+    if (Build.VERSION.SDK_INT >= 29) vm.detectCredentialProtectedWhileLocked()
+    if (Build.VERSION.SDK_INT >= 31) vm.detectUnsafeIntentLaunch()
+    StrictMode.setVmPolicy(vm.penaltyLog().build())
 }
 
 // Abandons an install session; one that's already gone is fine.
