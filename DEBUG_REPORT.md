@@ -264,3 +264,33 @@ Three read-only audits in parallel on the post-Phase-3 code: **Persistence** (S-
 - **W-11** (all banks "already syncing" still says "Synced"), **W-13** (sync timers use the wall clock), **ACCESS_NETWORK_STATE** for an instant "You're offline" (a manifest change; the message fix covers most of it).
 - S-7 survives one partial reply only (the transaction list itself is replaced); a fuller fix needs a saved date per choice.
 - Whole-file corruption of `budget.xml` (Android treats a damaged file as empty) — very rare thanks to Android's write-backup; detection would be new code with no way to test it here.
+
+---
+
+## Phase 6 — Tests
+
+**Result: 280 JVM unit tests, 0 failures, 3 skipped** (`testDebugUnitTest` and `testReleaseUnitTest` both pass). The 3 skips are cases that only Android's own JSON parser can produce (it reads a bare `NaN` in saved text as a number); they need a device.
+
+Setup (lead):
+
+- **Made the logic reachable.** The money math lived as private classes inside the 2,800-line activity, so the pure parts moved, unchanged, into `BudgetLogic.kt` (same package, `internal`): `Freq`, `Bill`, `matchBills` (was `billMatches`, now takes its inputs as parameters), `isTransfer`, `isPayroll`, `billWords`, `parseMoney`/`amountText`/`plain`, `billToJson`/`billFromJson`/`savedDate`. The update helpers at the end of `MainActivity.kt` (`isNewer`, `jsonWritable`, `copyUpTo`, `readUpTo`) became `internal`. No behavior change; the T-2 equivalence test below compares against the original code.
+- **Test dependencies**: `junit:junit:4.13.2` and `org.json:json:20250517` (`android.jar`'s org.json is a stub in JVM tests; the real library is close to Android's but not identical — noted in `build.gradle.kts`). No Robolectric and no `isReturnDefaultValues` (that would hide failures).
+- `connectedAndroidTest`: **not run** — there are no instrumented tests and no device this session.
+- Not unit-testable without a bigger refactor or Robolectric: the week math (`computeWeek`, `setAside`, `project`) and everything that touches the screen, SharedPreferences, the keystore or the network. Those stay on the on-device checklist (Phase 4).
+
+Test writers (in parallel, disjoint files; each compile-checked and ran its files in a scratch JVM, the lead ran Gradle):
+
+| Agent | Files | Tests | Covers (regressions by ID) |
+|---|---|---|---|
+| Test agent A | `BankSyncTest.kt`, `BankSyncDataTest.kt` | 110 | `cleanUrl` (https only, localhost http, ports), `isUsableKey` (F-03), Connect-vs-sync error wording and "no digits in messages" (E-9, W-5, W-6, F-15), server-text cleaning (W-7), retry rules (W-8), `BankException.network` (P-6), accounts JSON incl. non-numeric balances (F-14, F-13), pending→posted carry-over, `keptChoices` (S-7), bad addresses becoming bank errors. Mutation-checked: each reverted fix fails at least one test. |
+| Test agent B | `BudgetLogicScheduleTest.kt`, `BudgetLogicMatchTest.kt`, `BudgetLogicCategoryTest.kt`, `BudgetLogicMoneyTest.kt`, `BudgetLogicJsonTest.kt`, `UpdateHelpersTest.kt` | 170 | Due dates for every repeat (31st, leap years, offsets; 400 random cases vs. a step-by-step reference), paid marks, `nextDue`; bill `id` kept across copies (F-06); **T-2: the sped-up `matchBills` gives identical results to the original algorithm over 1,500 seeded scenarios** (5 deliberate mutations each caught) plus targeted rules; transfer/payroll rules; money parsing and formatting, incl. locale independence (RV-1); bill JSON round trips, legacy v2.0/v2.1 formats, unreadable bills → null (F-09, N-2); `savedDate` bounds; `isNewer`; download size cap (W-10); bounded reads; `jsonWritable` (S-1). |
+
+### Bugs found by writing tests
+
+| ID | Sev | Bug | Fix | Found by |
+|---|---|---|---|---|
+| T6-1 | Low | Pending→posted carry-over could hand one purchase's choice to another same-amount purchase's posted copy (only pending transactions *with* a choice counted when checking a match was unique). | Every pending transaction that disappeared counts. 3 regression tests. | Test agent A |
+| T6-2 | Low | `cleanUrl` accepted port 0 or > 65535; connecting then failed with a non-bank error (generic message). A malformed address could likewise escape as a raw `MalformedURLException`. | Ports checked; a malformed address becomes a `BankException`. 6 regression tests. | Test agent A |
+| T6-3 | Low | `jsonWritable` (the S-1 guard) was bound to Android-only `JSONStringer` signatures, so it couldn't be tested on the JVM. | Rewritten as a plain walk over the value looking for NaN/infinite numbers — the same rule Android enforces. | Test agent B |
+| T6-4 | Info | `parseMoney("1e9")` reads 19, and a Unicode minus "−20" reads +20 (all but digits, `.`, `-` is dropped). Unreachable: the amount fields can't take letters or "−". Documented in code and pinned by a test; `parseMoney`'s regex is now compiled once (it runs on every keystroke). | Test agent B |
+| — | Info | A wrong comment on `billWords` ("Phone bill" does have a matchable word: "phone"). Fixed. | Test agent B |

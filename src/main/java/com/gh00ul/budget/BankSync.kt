@@ -13,6 +13,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.net.ConnectException
 import java.net.HttpURLConnection
+import java.net.MalformedURLException
 import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
 import java.net.URI
@@ -128,8 +129,9 @@ object BankServer {
         val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return null
         val host = uri.host ?: return null
         val local = host == "localhost" || host == "127.0.0.1"
+        // (A port past 65535 would only fail later, when connecting, with an error that isn't about the address.)
         val ok = (uri.scheme.equals("https", true) || (local && uri.scheme.equals("http", true))) &&
-            uri.rawUserInfo == null && uri.rawQuery == null && uri.rawFragment == null
+            uri.rawUserInfo == null && uri.rawQuery == null && uri.rawFragment == null && uri.port in -1..65535 && uri.port != 0
         return if (ok) uri.toString().trimEnd('/') else null
     }
 
@@ -185,7 +187,11 @@ object BankServer {
     ): JSONObject {
         // Checked before the header is set: a bad character there fails with an error that repeats the key.
         if (!isUsableKey(key)) throw BankException("The access key has characters that can't be sent. Copy it again from your bank server.")
-        val url = URL(base + path)
+        val url = try {
+            URL(base + path)
+        } catch (e: MalformedURLException) { // only an address that skipped cleanUrl
+            throw BankException("That isn't a bank server address. Check it and try again.", e)
+        }
         var retried = false
         while (true) {
             val reply = try {
@@ -389,7 +395,10 @@ internal fun cleanServerMessage(raw: String?): String? {
 internal fun carryOverChoices(old: List<BankTxn>, new: List<BankTxn>, choices: Map<String, String>): Map<String, String> {
     val oldIds = old.mapTo(HashSet()) { it.id }
     val newIds = new.mapTo(HashSet()) { it.id }
-    val gone = old.filter { it.pending && it.id in choices && it.id !in newIds }
+    // Every pending transaction that disappeared counts when checking that a match is unique, not just those with a
+    // choice: otherwise two same-amount purchases could hand one's choice to the other's posted copy.
+    val vanished = old.filter { it.pending && it.id !in newIds }
+    val gone = vanished.filter { it.id in choices }
     val arrived = new.filter { !it.pending && it.id !in oldIds && it.id !in choices }
     // Epoch days, not plusDays/minusDays: no date math that can overflow on a damaged saved date.
     fun matches(x: BankTxn, y: BankTxn) = x.account == y.account &&
@@ -398,7 +407,7 @@ internal fun carryOverChoices(old: List<BankTxn>, new: List<BankTxn>, choices: M
     val carried = choices.toMutableMap()
     for (x in gone) {
         val y = arrived.filter { matches(x, it) }.singleOrNull() ?: continue
-        if (gone.count { matches(it, y) } != 1) continue
+        if (vanished.count { matches(it, y) } != 1) continue
         carried[y.id] = choices[x.id] ?: continue
     }
     return carried

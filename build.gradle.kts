@@ -59,3 +59,10 @@ android {
         jvmTarget = "17"
     }
 }
+
+dependencies {
+    // JVM unit tests (src/test). In those, android.jar's org.json is only a stub that throws, so they use the
+    // real library; its behavior is close to Android's but not identical (e.g. around NaN).
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20250517")
+}
