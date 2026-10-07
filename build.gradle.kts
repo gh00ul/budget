@@ -3,8 +3,12 @@ plugins {
     id("org.jetbrains.kotlin.android") version "2.0.21"
 }
 
-// Release builds pass -PappVersion=X.Y.Z from the git tag (see .github/workflows/build.yml).
+// Release builds pass -PappVersion=X.Y.Z from the git tag (see .github/workflows/build.yml). versionCode is
+// major·10000 + minor·100 + patch, so minor and patch must stay below 100 (the CI tag check enforces the same).
 val appVersion = (findProperty("appVersion") as String?) ?: "0.0.1"
+if (!Regex("""\d{1,4}\.\d{1,2}\.\d{1,2}""").matches(appVersion)) {
+    throw GradleException("appVersion must look like 3.2.1 (minor and patch below 100), got \"$appVersion\"")
+}
 
 android {
     namespace = "com.gh00ul.budget"
@@ -32,6 +36,13 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
+            manifestPlaceholders["appLabel"] = "Budget"
+        }
+        // A separate app, so a local build installs next to the release one (different signing key) without
+        // touching its data. src/debug/res/xml/shortcuts.xml points the shortcuts at this package.
+        debug {
+            applicationIdSuffix = ".debug"
+            manifestPlaceholders["appLabel"] = "Budget (debug)"
         }
     }
 

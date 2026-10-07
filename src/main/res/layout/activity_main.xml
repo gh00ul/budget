@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Three pages (only one visible at a time) above a bottom tab bar. -->
+<!-- TooManyViews: single-activity app by design; the three tabs live in this one layout and only one
+     page is visible at a time (the others are GONE), so the drawn view count stays well under the limit. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical">
+    android:orientation="vertical"
+    tools:ignore="TooManyViews">
 
     <FrameLayout
         android:id="@+id/pages"
@@ -114,9 +118,15 @@
                         android:id="@+id/setup_pay_row"
                         style="@style/GlanceRow">
 
+                        <!-- Row icons and chevrons are decorative: the tappable row is read as a whole from its
+                             label and value text (a filled-in value vs. a prompt like "Not set" tells a screen
+                             reader whether a step is done, which the icon shows by turning into a check mark).
+                             RowIcon/ChevronIcon already set importantForAccessibility="no"; it's repeated
+                             inline because lint doesn't resolve styles. -->
                         <ImageView
                             android:id="@+id/setup_pay_icon"
                             style="@style/RowIcon"
+                            android:importantForAccessibility="no"
                             android:src="@drawable/ic_tab_paydays" />
 
                         <TextView
@@ -127,7 +137,9 @@
                             android:id="@+id/setup_pay_value"
                             style="@style/GlanceValue" />
 
-                        <ImageView style="@style/ChevronIcon" />
+                        <ImageView
+                            style="@style/ChevronIcon"
+                            android:importantForAccessibility="no" />
                     </LinearLayout>
 
                     <View
@@ -141,6 +153,7 @@
                         <ImageView
                             android:id="@+id/setup_bills_icon"
                             style="@style/RowIcon"
+                            android:importantForAccessibility="no"
                             android:src="@drawable/ic_tab_bills" />
 
                         <TextView
@@ -151,7 +164,9 @@
                             android:id="@+id/setup_bills_value"
                             style="@style/GlanceValue" />
 
-                        <ImageView style="@style/ChevronIcon" />
+                        <ImageView
+                            style="@style/ChevronIcon"
+                            android:importantForAccessibility="no" />
                     </LinearLayout>
 
                     <View
@@ -165,6 +180,7 @@
                         <ImageView
                             android:id="@+id/setup_balance_icon"
                             style="@style/RowIcon"
+                            android:importantForAccessibility="no"
                             android:src="@drawable/ic_wallet" />
 
                         <TextView
@@ -175,7 +191,9 @@
                             android:id="@+id/setup_balance_value"
                             style="@style/GlanceValue" />
 
-                        <ImageView style="@style/ChevronIcon" />
+                        <ImageView
+                            style="@style/ChevronIcon"
+                            android:importantForAccessibility="no" />
                     </LinearLayout>
 
                     <Button
@@ -217,11 +235,15 @@
                         android:paddingHorizontal="16dp"
                         android:paddingVertical="20dp">
 
+                        <!-- UseCompoundDrawables: the info icon is drawn at 20dp (its vector is 24dp) and tinted
+                             #CC white while the label is #D9 white; a compound drawable would use the vector's
+                             intrinsic size and the text's layout, changing the look. -->
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:gravity="center_vertical"
-                            android:orientation="horizontal">
+                            android:orientation="horizontal"
+                            tools:ignore="UseCompoundDrawables">
 
                             <TextView
                                 android:layout_width="0dp"
@@ -293,6 +315,7 @@
 
                             <ImageView
                                 style="@style/RowIcon"
+                                android:importantForAccessibility="no"
                                 android:src="@drawable/ic_wallet" />
 
                             <LinearLayout
@@ -350,6 +373,7 @@
                             android:gravity="center_vertical"
                             android:minHeight="48dp"
                             android:paddingStart="8dp"
+                            android:paddingEnd="0dp"
                             android:text="Log a purchase"
                             android:textColor="@color/chip_text"
                             android:textSize="15sp" />
@@ -366,6 +390,7 @@
 
                             <ImageView
                                 style="@style/RowIcon"
+                                android:importantForAccessibility="no"
                                 android:src="@drawable/ic_tab_paydays" />
 
                             <TextView
@@ -376,7 +401,9 @@
                                 android:id="@+id/glance_payday"
                                 style="@style/GlanceValue" />
 
-                            <ImageView style="@style/ChevronIcon" />
+                            <ImageView
+                                style="@style/ChevronIcon"
+                                android:importantForAccessibility="no" />
                         </LinearLayout>
 
                         <View
@@ -389,6 +416,7 @@
 
                             <ImageView
                                 style="@style/RowIcon"
+                                android:importantForAccessibility="no"
                                 android:src="@drawable/ic_bell" />
 
                             <TextView
@@ -399,7 +427,9 @@
                                 android:id="@+id/glance_bill"
                                 style="@style/GlanceValue" />
 
-                            <ImageView style="@style/ChevronIcon" />
+                            <ImageView
+                                style="@style/ChevronIcon"
+                                android:importantForAccessibility="no" />
                         </LinearLayout>
 
                         <View
@@ -412,6 +442,7 @@
 
                             <ImageView
                                 style="@style/RowIcon"
+                                android:importantForAccessibility="no"
                                 android:src="@drawable/ic_tab_bills" />
 
                             <TextView
@@ -422,7 +453,9 @@
                                 android:id="@+id/glance_due"
                                 style="@style/GlanceValue" />
 
-                            <ImageView style="@style/ChevronIcon" />
+                            <ImageView
+                                style="@style/ChevronIcon"
+                                android:importantForAccessibility="no" />
                         </LinearLayout>
                     </LinearLayout>
 
@@ -508,6 +541,7 @@
 
                         <ImageView
                             style="@style/RowIcon"
+                            android:importantForAccessibility="no"
                             android:src="@drawable/ic_tab_paydays" />
 
                         <TextView
@@ -518,7 +552,9 @@
                             android:id="@+id/pay_value"
                             style="@style/GlanceValue" />
 
-                        <ImageView style="@style/ChevronIcon" />
+                        <ImageView
+                            style="@style/ChevronIcon"
+                            android:importantForAccessibility="no" />
                     </LinearLayout>
                 </LinearLayout>
 

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The "$" box used in amount dialogs (bank balance, a paycheck). -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:paddingHorizontal="24dp"
@@ -10,8 +11,14 @@
 
         <TextView style="@style/DollarSign" />
 
+        <!-- LabelFor: this box goes inside an AlertDialog whose title and message (set in code) say what
+             the amount is for, and it already shows the "0.00" hint from @style/MoneyInput (lint doesn't
+             read hints from styles). inputType is replaced in code (adds a sign flag for some dialogs). -->
         <EditText
             android:id="@+id/dialog_amount_input"
-            style="@style/MoneyInput" />
+            style="@style/MoneyInput"
+            android:importantForAutofill="no"
+            android:inputType="numberDecimal"
+            tools:ignore="LabelFor" />
     </LinearLayout>
 </FrameLayout>

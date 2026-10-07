@@ -19,6 +19,7 @@
             android:id="@+id/pay_amount"
             style="@style/MoneyInput"
             android:imeOptions="actionDone"
+            android:importantForAutofill="no"
             android:inputType="numberDecimal"
             android:selectAllOnFocus="true" />
     </LinearLayout>

@@ -18,18 +18,5 @@
     <color name="nav_indicator">#2C4A30</color>
     <color name="delete_bg">#2A1818</color>
     <color name="snackbar">#3A3F3D</color>
-
-    <color name="avatar_bg_1">#232845</color>
-    <color name="avatar_fg_1">#9FA8DA</color>
-    <color name="avatar_bg_2">#1C2F45</color>
-    <color name="avatar_fg_2">#90CAF9</color>
-    <color name="avatar_bg_3">#3D2E14</color>
-    <color name="avatar_fg_3">#FFCC80</color>
-    <color name="avatar_bg_4">#33213D</color>
-    <color name="avatar_fg_4">#CE93D8</color>
-    <color name="avatar_bg_5">#263036</color>
-    <color name="avatar_fg_5">#B0BEC5</color>
-    <color name="avatar_bg_6">#173833</color>
-    <color name="avatar_fg_6">#80CBC4</color>
     <color name="warn_bg">#3D2E14</color>
 </resources>

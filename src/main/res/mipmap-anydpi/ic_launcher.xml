@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/brand" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <!-- Themed icon (Android 13+): the foreground is a white wallet glyph on a transparent background,
+         so its shape works as the single-color silhouette. Older Android versions ignore this tag. -->
+    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

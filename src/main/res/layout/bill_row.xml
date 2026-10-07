@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- One bill. Swiping right shows a green "Paid" layer, swiping left a red "Delete" layer. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content">
 
+    <!-- The swipe layers are visual only (the layer hides its children from screen readers; the row offers
+         "Mark paid" / "Delete" as accessibility actions instead), so their icons are decorative. -->
     <LinearLayout
         android:id="@+id/bill_row_paid_layer"
         android:layout_width="match_parent"
@@ -13,11 +16,13 @@
         android:importantForAccessibility="noHideDescendants"
         android:orientation="horizontal"
         android:paddingStart="20dp"
+        android:paddingEnd="0dp"
         android:visibility="invisible">
 
         <ImageView
             android:layout_width="20dp"
             android:layout_height="20dp"
+            android:importantForAccessibility="no"
             android:src="@drawable/ic_check"
             android:tint="@color/positive" />
 
@@ -39,12 +44,14 @@
         android:gravity="center_vertical|end"
         android:importantForAccessibility="noHideDescendants"
         android:orientation="horizontal"
+        android:paddingStart="0dp"
         android:paddingEnd="20dp"
         android:visibility="invisible">
 
         <ImageView
             android:layout_width="20dp"
             android:layout_height="20dp"
+            android:importantForAccessibility="no"
             android:src="@drawable/ic_delete"
             android:tint="@color/negative" />
 
@@ -83,13 +90,16 @@
             android:orientation="vertical"
             android:padding="4dp">
 
+            <!-- SmallSp: 10sp all-caps month abbreviation sized to sit inside the 44dp date badge above the
+                 17sp day; it still scales with the user's font size, and the badge grows with it. -->
             <TextView
                 android:id="@+id/bill_row_month"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:fontFamily="sans-serif-medium"
                 android:textAllCaps="true"
-                android:textSize="10sp" />
+                android:textSize="10sp"
+                tools:ignore="SmallSp" />
 
             <TextView
                 android:id="@+id/bill_row_day"

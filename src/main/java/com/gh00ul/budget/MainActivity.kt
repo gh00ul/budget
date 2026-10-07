@@ -393,6 +393,9 @@ class MainActivity : Activity() {
     }
 
     // Back from another tab goes to Summary before leaving the app.
+    // Deprecated since API 33 in favor of OnBackInvokedCallback, but the app doesn't opt in to predictive back
+    // (no android:enableOnBackInvokedCallback) and targets 35, so Android still calls this on every version.
+    // It has to move to OnBackInvokedCallback before targetSdk 36 (DEBUG_REPORT.md F-25).
     @Deprecated("Deprecated in Java")
     @Suppress("DEPRECATION")
     override fun onBackPressed() {
@@ -417,6 +420,7 @@ class MainActivity : Activity() {
     private fun setUpTabs() {
         val nav = findViewById<LinearLayout>(R.id.nav)
         nav.accessibilityDelegate = object : View.AccessibilityDelegate() {
+            // obtain() is deprecated from API 33, but its replacement constructor only exists from 33 (minSdk 26).
             @Suppress("DEPRECATION")
             override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
                 super.onInitializeAccessibilityNodeInfo(host, info)
@@ -431,6 +435,7 @@ class MainActivity : Activity() {
             item.setOnClickListener { showTab(i) }
             // Screen readers announce "Tab, 2 of 3".
             item.accessibilityDelegate = object : View.AccessibilityDelegate() {
+                // Same as above: the non-deprecated constructor is API 33+.
                 @Suppress("DEPRECATION")
                 override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
                     super.onInitializeAccessibilityNodeInfo(host, info)
@@ -504,6 +509,8 @@ class MainActivity : Activity() {
 
     // Android 15+ draws the app behind the status/navigation bars, so pad the pages and tab bar clear of
     // them. The tab bar's color runs down behind the phone's navigation buttons.
+    // setDecorFitsSystemWindows and navigationBarColor are deprecated in API 35 because 35+ is always
+    // edge-to-edge (where they do nothing); Android 11-14 still need them to get the same layout.
     @Suppress("DEPRECATION")
     private fun fitToSystemBars() {
         if (Build.VERSION.SDK_INT < 30) return
@@ -2063,6 +2070,7 @@ class MainActivity : Activity() {
         val today = LocalDate.now()
         var closeSheet: () -> Unit = {}
         val dialog = object : Dialog(this, R.style.SheetDialog) {
+            // Still called at targetSdk 35 without predictive back; see MainActivity.onBackPressed (F-25).
             @Deprecated("Deprecated in Java")
             override fun onBackPressed() = closeSheet()
         }
@@ -2071,6 +2079,8 @@ class MainActivity : Activity() {
         val window = dialog.window!!
         window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         window.setTitle(if (existing == null) "New bill" else "Edit bill")
+        // ADJUST_RESIZE is deprecated from API 30 (insets are handled below there), but Android 8-10 need it so
+        // the keyboard doesn't cover the sheet.
         @Suppress("DEPRECATION")
         window.setSoftInputMode(
             WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
@@ -2093,8 +2103,10 @@ class MainActivity : Activity() {
         // Run the sheet down behind the navigation buttons (Android 11+). Older phones keep the window above
         // them and leave the button colors alone.
         if (Build.VERSION.SDK_INT >= 30) {
+            // Deprecated in API 35, where windows are always edge-to-edge; Android 11-14 still need both.
             @Suppress("DEPRECATION")
             window.navigationBarColor = getColor(R.color.card)
+            @Suppress("DEPRECATION")
             window.setDecorFitsSystemWindows(false)
             window.attributes = window.attributes.apply { fitInsetsTypes = 0 }
             window.isNavigationBarContrastEnforced = false
@@ -2249,8 +2261,9 @@ class MainActivity : Activity() {
                 return@setOnClickListener
             }
             // Moving a bill that's due now to a later date: did they pay this one (so it isn't counted as spending)?
+            // `shown` is only set when editing, so `existing` is non-null here (the compiler knows it too).
             val movedFrom = shown?.takeIf {
-                existing != null && pickedDate?.isAfter(it) == true && ChronoUnit.DAYS.between(today, it) <= 3 && it !in existing.paid
+                pickedDate?.isAfter(it) == true && ChronoUnit.DAYS.between(today, it) <= 3 && it !in existing.paid
             }
             if (movedFrom != null) {
                 AlertDialog.Builder(this)
@@ -2366,6 +2379,14 @@ class MainActivity : Activity() {
         snackUndo = null
         pendingDeletes += index to bill
         showSnackBar(deletedText(), canUndo = true)
+        moveScreenReaderToUndo()
+    }
+
+    // The deleted row is gone, so a screen reader's focus would otherwise drop to the top of the page; putting
+    // it on Undo instead lets a TalkBack user take the delete back. Lint warns against moving accessibility
+    // focus in general, but here it replaces focus that was just destroyed, and only while TalkBack is on.
+    @SuppressLint("AccessibilityFocus")
+    private fun moveScreenReaderToUndo() {
         if (a11y.isTouchExplorationEnabled) {
             undoButton.performAccessibilityAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null)
         }
@@ -2795,8 +2816,13 @@ class InstallReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
-                @Suppress("DEPRECATION")
-                val prompt = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT) ?: return
+                // The typed getParcelableExtra is API 33+ and unreliable on 33 itself, so it's used from 34 on.
+                val prompt = if (Build.VERSION.SDK_INT >= 34) {
+                    intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
+                } ?: return
                 context.startActivity(prompt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
             PackageInstaller.STATUS_SUCCESS, PackageInstaller.STATUS_FAILURE_ABORTED -> Unit

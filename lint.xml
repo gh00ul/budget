@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lint exceptions kept on purpose. Anything not listed here should be fixed rather than ignored. -->
+<lint>
+    <!-- The app is English-only and builds most text from live numbers ("Spent $60 of $229.55"); moving every
+         string into resources is a large refactor with no user-visible benefit today. Revisit if the app is
+         ever translated. -->
+    <issue id="HardcodedText" severity="ignore" />
+    <issue id="SetTextI18n" severity="ignore" />
+
+    <!-- accessibilityHeading and screenReaderFocusable are API 28+ screen-reader hints; on Android 8.0/8.1
+         (minSdk 26) they're simply ignored, which is the intent. Other unused attributes still warn. -->
+    <issue id="UnusedAttribute">
+        <ignore regexp="Attribute `?(accessibilityHeading|screenReaderFocusable)`? is only used in API level 28" />
+    </issue>
+</lint>

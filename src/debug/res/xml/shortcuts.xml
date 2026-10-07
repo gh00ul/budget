@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Long-press the app icon for these. Debug builds use src/debug/res/xml/shortcuts.xml (same shortcuts, debug
-     package name); keep the two in step. -->
+<!-- Debug build copy of src/main/res/xml/shortcuts.xml: the debug app is com.gh00ul.budget.debug, and a
+     shortcut has to name its own package. Keep the two files in step. -->
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
     <shortcut
         android:enabled="true"
@@ -11,7 +11,7 @@
         <intent
             android:action="com.gh00ul.budget.UPDATE_BALANCE"
             android:targetClass="com.gh00ul.budget.MainActivity"
-            android:targetPackage="com.gh00ul.budget" />
+            android:targetPackage="com.gh00ul.budget.debug" />
     </shortcut>
     <shortcut
         android:enabled="true"
@@ -22,6 +22,6 @@
         <intent
             android:action="com.gh00ul.budget.ADD_BILL"
             android:targetClass="com.gh00ul.budget.MainActivity"
-            android:targetPackage="com.gh00ul.budget" />
+            android:targetPackage="com.gh00ul.budget.debug" />
     </shortcut>
 </shortcuts>

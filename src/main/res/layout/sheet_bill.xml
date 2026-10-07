@@ -1,9 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Slide-up sheet for adding or editing a bill. -->
+<!-- MergeRootFrame: can't be a <merge>; code looks up sheet_root by id to listen for window insets
+     (navigation bar and keyboard) and pad the sheet above them. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/sheet_root"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    tools:ignore="MergeRootFrame">
 
     <View
         android:id="@+id/sheet_scrim"
@@ -57,13 +61,19 @@
                     android:labelFor="@+id/sheet_name"
                     android:text="Name" />
 
+                <!-- LabelFor: keeps both on purpose. The visible "Name" label above is linked with labelFor so
+                     screen readers announce the field's name; the hint is a visible example, not a name.
+                     Dropping the hint would change the look, and dropping labelFor would leave TalkBack with
+                     only "e.g. Rent". From API 26 (minSdk) the hint is reported separately from the label. -->
                 <EditText
                     android:id="@+id/sheet_name"
                     style="@style/Input"
                     android:layout_width="match_parent"
                     android:hint="e.g. Rent"
+                    android:importantForAutofill="no"
                     android:inputType="textCapWords"
-                    android:maxLength="40" />
+                    android:maxLength="40"
+                    tools:ignore="LabelFor" />
 
                 <TextView
                     style="@style/FieldLabel"
@@ -77,15 +87,19 @@
                     <EditText
                         android:id="@+id/sheet_amount"
                         style="@style/MoneyInput"
+                        android:importantForAutofill="no"
                         android:inputType="numberDecimal"
                         android:selectAllOnFocus="true" />
                 </LinearLayout>
 
-                <!-- Repeats + Next due; stacked on top of each other with large text -->
+                <!-- Repeats + Next due; stacked on top of each other with large text.
+                     baselineAligned="false" changes nothing visually: both children are vertical LinearLayouts
+                     without baselineAlignedChildIndex, so they report no baseline and were never aligned. -->
                 <LinearLayout
                     android:id="@+id/sheet_row_when"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:baselineAligned="false"
                     android:orientation="horizontal">
 
                     <LinearLayout

@@ -54,29 +54,50 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
         typeface = medium
     }
 
+    // Reused on every draw (onDraw runs each animation frame, so it shouldn't allocate).
+    private val line = Path()
+    private val area = Path()
+
     // `description` is what a screen reader says for the chart.
     fun setData(labels: List<String>, values: List<Double>, description: String, format: (Double) -> String) {
         this.labels = labels
         this.values = values
         this.format = format
         contentDescription = description
+        updateFill()
         invalidate()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        updateFill()
+    }
+
+    // Room for the value labels above and the axis labels below, which grow with the font size.
+    private fun plotTop() = valueText.textSize + 12 * dp
+    private fun plotBottom() = height - axisText.textSize - 14 * dp
+    private fun lineColor() = context.getColor(if (values.any { it < 0 }) R.color.negative else R.color.positive)
+
+    // The fade under the line depends only on the color and the plot's height, so it's made when those change.
+    private fun updateFill() {
+        val color = lineColor()
+        fillPaint.shader = LinearGradient(
+            0f, plotTop(), 0f, plotBottom(), withAlpha(color, 0x30), withAlpha(color, 0x00), Shader.TileMode.CLAMP,
+        )
     }
 
     override fun onDraw(canvas: Canvas) {
         if (values.size < 2 || width == 0) return
-        val positive = context.getColor(R.color.positive)
         val negative = context.getColor(R.color.negative)
         val textColor = context.getColor(R.color.text)
         val secondary = context.getColor(R.color.text_secondary)
         val anyNegative = values.any { it < 0 }
-        val color = if (anyNegative) negative else positive
+        val color = lineColor()
 
-        // Room for the value labels above and the axis labels below, which grow with the font size.
         val left = 16 * dp
         val right = width - 16 * dp
-        val top = valueText.textSize + 12 * dp
-        val bottom = height - axisText.textSize - 14 * dp
+        val top = plotTop()
+        val bottom = plotBottom()
         val minV = minOf(0.0, values.min())
         val maxV = maxOf(values.max(), 0.0)
         val span = (maxV - minV).takeIf { it > 0 } ?: 1.0
@@ -85,14 +106,12 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
 
         canvas.drawLine(left, bottom, right, bottom, basePaint)
 
-        val line = Path()
+        line.reset()
         values.forEachIndexed { i, v -> if (i == 0) line.moveTo(x(i), y(v)) else line.lineTo(x(i), y(v)) }
-        val area = Path(line).apply {
-            lineTo(x(values.size - 1), bottom)
-            lineTo(x(0), bottom)
-            close()
-        }
-        fillPaint.shader = LinearGradient(0f, top, 0f, bottom, withAlpha(color, 0x30), withAlpha(color, 0x00), Shader.TileMode.CLAMP)
+        area.set(line)
+        area.lineTo(x(values.size - 1), bottom)
+        area.lineTo(x(0), bottom)
+        area.close()
         canvas.drawPath(area, fillPaint)
         if (anyNegative) canvas.drawLine(left, y(0.0), right, y(0.0), zeroPaint)
         linePaint.color = color
