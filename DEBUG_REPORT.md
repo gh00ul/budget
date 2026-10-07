@@ -4,7 +4,18 @@ Started 2026-10-06 from `dc742a7` (v3.2.0 + bank-sync fixes). One commit per pha
 
 ## Summary checklist
 
-_(Filled in at the end — see Phase 8.)_
+- [x] **Phase 1 — Map**: 3 agents; 31 findings logged (F-01…F-31). No secrets in the code or git history.
+- [x] **Phase 2 — Build health**: debug + release build ✅ · lint **169 → 3 warnings**, 0 errors (the 3 are deliberate toolchain reminders) · 0 Kotlin warnings · debug builds are now a separate app (`com.gh00ul.budget.debug`) so they install next to your real one.
+- [x] **Phase 3 — Crash hunt**: 6 audits, no Critical crash. Fixed 1 High (a stale second screen after using a home-screen shortcut could overwrite newer data) and ~15 Medium (work lost or duplicated on rotation/shortcuts, keystore crash, edits lost to a background sync, unreadable bills silently erased, update prompt never appearing on Android 10+…). An independent review caught 8 more, incl. one regression I'd introduced — fixed before commit.
+- [ ] **Phase 4 — On device**: ⚠️ **skipped at your request** (only the Tab S7 was connected). StrictMode added to debug builds. → [What to check on the phone](#still-needs-checking-on-a-device-s25-ultra-preferred).
+- [x] **Phase 5 — Data & network**: Android 15's background network cut-off no longer shows a false "Sync problem"; syncs have a 2-minute limit; a damaged value can't erase every bill; instructions are dialogs instead of 2-line toasts; clearer bank/update messages.
+- [x] **Phase 6 — Tests**: **280 unit tests, 0 failures** (3 Android-only cases skipped). Writing them found 3 more small bugs (fixed).
+- [x] **Phase 7 — UI**: at your large font, rows stack instead of splitting amounts mid-number; no silently cut text; sheet clear of the status bar; chart labels fit; TalkBack keeps its place. Default look unchanged except **equal-height Summary tiles** and a **slightly darker date-picker header** (contrast). ⚠️ Not screenshot-checked.
+- [x] **Phase 8 — Review**: independent full-diff review → "safe to keep", no Critical/High/Medium; 7 Low items fixed; privacy audit of every log line clean.
+
+**Your decisions (nothing was done without you):** cloud-backup encryption (P-7) · keep "how it counts" choices across Disconnect/Connect (S-8) · keep the server address after Disconnect (E-11) · delete two unused v2.x saved keys (FR-7, reverted) · stack text from 1.1× instead of 1.3×, and bill rows at 2.0× (Phase 7) · keep the equal-height tiles.
+
+**Biggest remaining risks:** (1) nothing verified on a device; (2) back-to-Summary breaks if targetSdk goes to 36 before back handling is migrated (F-25); (3) toolchain is behind (AGP 8.7.3 can't build for API 36). Details in [Remaining risks](#remaining-risks-and-next-steps-ranked-by-impact).
 
 ---
 
@@ -254,7 +265,6 @@ Three read-only audits in parallel on the post-Phase-3 code: **Persistence** (S-
 | S-2, S-9 | Low | The aside-copy of damaged data was kept only once; wrong-typed lists got no copy; unreadable saved choices were overwritten; a NaN saved transaction broke every redraw. | → a later, different copy is kept as `…_unreadable_latest`; wrong-typed lists are copied too; `overrides_unreadable`; NaN transactions skipped. | both | Persistence |
 | S-10 | Low | A closing (not yet destroyed) screen could still save from an animation end. | → `isFinishing` checked too. | MainActivity.kt | Persistence |
 | E-16, E-17, E-19, E-20, E-21, E-22, E-24 | Low | Old estimates said only a weekday; a past "next due" moved silently; a $0 purchase "saved" nothing; no "Pay saved" before the payday-changed question; empty purchase list after a failed sync looked like $0 spent; sync problem hidden behind "marked paid"; sheet errors not read by TalkBack. | → date for estimates ≥ 7 days old; "Oct 1 has passed, so it's next due Nov 1."; Save disabled at $0; snack first; "Last synced …, so the newest purchases may be missing."; both said; errors announced. | MainActivity.kt | Error UX |
-| Orphan keys | Low | `income` (v2.0) and `bills_open` (v2.3–2.4) were kept and backed up forever. | → removed with the next save (nothing can read them; no older version can be reinstalled over this data). | MainActivity.kt | Persistence |
 
 ### Left (with reasons)
 
@@ -263,6 +273,7 @@ Three read-only audits in parallel on the post-Phase-3 code: **Persistence** (S-
 - **E-11 — keep the server address after Disconnect** so it's prefilled (owner's call; small privacy trade-off).
 - **W-11** (all banks "already syncing" still says "Synced"), **W-13** (sync timers use the wall clock), **ACCESS_NETWORK_STATE** for an instant "You're offline" (a manifest change; the message fix covers most of it).
 - S-7 survives one partial reply only (the transaction list itself is replaced); a fuller fix needs a saved date per choice.
+- Orphan keys `income` (v2.0) and `bills_open` (v2.3–2.4): harmless and unread, but removing them deletes saved data — reverted in Phase 8 (FR-7), owner's call.
 - Whole-file corruption of `budget.xml` (Android treats a damaged file as empty) — very rare thanks to Android's write-backup; detection would be new code with no way to test it here.
 
 ---
@@ -332,3 +343,63 @@ Left / owner's call:
 - **Bill rows at 2.0×** squeeze names (the amount can't split). Stacking them too would also move the amount onto its own line at 1.3× — a visible change at the owner's everyday size, so it wasn't done; a second, 1.8× tier would avoid that.
 - **Message bar padding:** a 3–5-line message bar can briefly cover the bottom of the last card; reserving page padding while it shows would need more code.
 - U-15 (a half-typed bill sheet is lost on rotation).
+
+---
+
+## Phase 8 — Review & final checks
+
+An independent **Reviewer agent** (read-only) audited the whole diff `dc742a7..HEAD`, weighted toward phases 5–7 (Phase 3 had its own review). Verdict: **safe to keep — no Critical, High or Medium findings, no lost functionality**; behavior changes are only the ones listed in this report. It traced every user flow against `dc742a7`, re-derived the Phase 5 sync scheduling, the BankSync deadline/retry, the Phase 6 move (word-for-word) and every Phase 7 layout at default size, checked every `R.id` used in code still exists with a compatible type, and audited every log line.
+
+| ID | Sev | Finding | Fix |
+|---|---|---|---|
+| FR-1 | Low (debug only) | StrictMode's cleartext check logs part of the first unencrypted packet — during fake-bank testing on `http://localhost` that includes `Authorization: Bearer <key>`. | Check removed (the network config already blocks cleartext except localhost). |
+| FR-2 | Low | After grabbing a row mid-slide, the layer behind it could show the wrong action. | The layer follows where the row is. |
+| FR-3 | Low | After a failed update check, two checks could run at once (onCreate + onResume), eating GitHub's hourly limit. | One check at a time; a newer release also clears an old download error. |
+| FR-4 | Low | Connect's field errors appeared from the first letter typed. | Shown when the field is left, cleared once fixed. |
+| FR-5 | Low | The sheet's "Mark … as paid" button saved a duplicate name without the warning. | Same warning as Save. |
+| FR-6 | Low | The "has passed, next due …" hint didn't appear if the name was typed last. | Redrawn when the name changes. |
+| FR-7 | Low (rules) | Phase 5 deleted two unused v2.x saved keys (`income`, `bills_open`) on every save — a destructive change the owner hadn't approved. | Reverted; left as an owner decision. |
+| FR-8 | Info | Three `!!` remain — all pre-existing at `dc742a7` and safe. | Left. |
+| FR-9 | Info | The redraw safety net logged the exception's message. | Now logs only its type and stack frames. |
+
+Also from the review: the "Install unknown apps" fallback no longer shows a toast and a dialog saying the same thing. (`stackForLargeText` is applied to the bill sheet for future tagged rows; none are tagged there today — the sheet keeps its own Repeats/Next due stacking.)
+
+**Final state** (after the review fixes): `assembleDebug` ✅ `assembleRelease` ✅ (signed locally with the debug key only to prove it builds) · lint debug/release **0 errors, 3 warnings** (OldTargetApi, AGP and Kotlin versions — kept as reminders) · `testDebugUnitTest` / `testReleaseUnitTest` **280 tests, 0 failures, 3 skipped** · 0 Kotlin compiler warnings. Debug APK 1.2 MB, release 0.8 MB.
+
+Privacy: no log line contains a URL, key, IV, account/transaction/bill name, amount or server message (audit table in the reviewer's report: class names, counts, key names, HTTP status codes and fixed text only). No `@Suppress`/`@SuppressLint`/`tools:ignore` without a reason comment. Nothing clears app data or changes device settings; no adb command ran except the initial `adb devices -l`.
+
+---
+
+## Remaining risks and next steps (ranked by impact)
+
+1. **Nothing was verified on a device.** Every runtime behavior above is reasoned, reviewed twice and (where pure) unit-tested, but not run: rotation/shortcut/process-death paths, the Android 15 network cut-off handling, the update prompt on One UI (incl. Samsung Auto Blocker), large-font layouts, TalkBack. → Walk the [on-device checklist](#still-needs-checking-on-a-device-s25-ultra-preferred) with the debug build before tagging a release.
+2. **Back handling breaks at targetSdk 36 (F-25).** Android 16 stops calling `onBackPressed` for apps targeting 36: "Back goes to Summary first" and the bill sheet's animated close would stop working. → Move to `OnBackInvokedCallback` (API 33+) and set `enableOnBackInvokedCallback`, *then* raise targetSdk.
+3. **Toolchain is behind (F-31).** AGP 8.7.3 can't compile against API 36; Kotlin 2.0.21 with Gradle 8.11.1 is outside the tested matrix; `kotlinOptions` becomes an error on Kotlin ≥ 2.2. → AGP 8.13.x + Gradle 8.14.x + Kotlin 2.3.x (update CI's `gradle-version` together), after item 2.
+4. **The week math isn't unit-tested.** `computeWeek`, `setAside` and `project` read a dozen activity fields; testing them needs extracting them into `BudgetLogic.kt` with explicit inputs (a bigger refactor — owner's call) or Robolectric.
+5. **"How it counts" choices on pending transactions** carry over to the posted copy only by a strict heuristic (same account, same amount to the cent, ≤ 10 days, one-to-one). → Have the ClearBudget server pass Plaid's `pending_transaction_id` through for an exact match.
+6. **CI release safety (F-31).** CI publishes the APK without checking its signing certificate; a failed step can leave `release.jks` on the runner; an empty secret fails late. → `apksigner verify --print-certs` against a pinned SHA-256, keystore in `$RUNNER_TEMP` with an `if: always()` cleanup.
+7. **Sideloading is getting harder.** Samsung Auto Blocker (on by default on recent Galaxy phones) blocks self-updates — the app now says so — and Google's developer verification for sideloaded apps goes global in 2027.
+8. **Smaller known limits:** a half-typed bill sheet is lost on rotation (U-15); a home-screen shortcut always starts a fresh screen (L-6, platform behavior); bill rows still squeeze names at 2.0× font; a 3–5-line message bar can briefly cover the last card at 2.0×; the 3 Android-only JSON cases (S-1) need a device.
+9. **Owner decisions** (see the summary): P-7, S-8, E-11, FR-7, stacking threshold, equal-height tiles.
+
+---
+
+## Build & install
+
+No Gradle wrapper is checked in; CI uses Gradle 8.11.1, which is already in the local Gradle cache. `local.properties` (gitignored) must contain `sdk.dir=C\:/Users/larry/AppData/Local/Android/Sdk` — escape the colon.
+
+```bash
+"$HOME/.gradle/wrapper/dists/gradle-8.11.1-bin/bpt9gzteqjrbo1mjrsomdt32c/gradle-8.11.1/bin/gradle" clean assembleDebug testDebugUnitTest lintDebug
+```
+
+The debug app is `com.gh00ul.budget.debug` ("Budget (debug)") and installs **next to** your real Budget without touching its data. Check what's connected first, then install with `-r` only:
+
+```bash
+adb devices -l
+```
+
+```bash
+adb -s <serial> install -r build/outputs/apk/debug/budget-debug.apk
+```
+
+Release builds stay CI-only (tag `vX.Y.Z` → GitHub Actions signs with the release key). A locally built release APK can only be signed with the debug key, so **don't install it over the real app**.

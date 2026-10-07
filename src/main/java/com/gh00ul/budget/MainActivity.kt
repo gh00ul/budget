@@ -972,19 +972,24 @@ class MainActivity : Activity() {
         val connect = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
         fun valid() = BankServer.cleanUrl(urlBox.text.toString()) != null && BankServer.isUsableKey(keyBox.text.toString().trim())
         connect.isEnabled = valid()
-        // Why Connect is greyed out, once something's been typed.
+        // Why Connect is greyed out: said when a field with something in it is left (not from the first letter
+        // typed), and cleared as soon as it's fixed.
+        fun urlProblem() = if (urlBox.text.isNotBlank() && BankServer.cleanUrl(urlBox.text.toString()) == null) {
+            "Use the https:// address of your bank server"
+        } else {
+            null
+        }
+        fun keyProblem() = keyBox.text.toString().trim()
+            .takeIf { it.isNotEmpty() && !BankServer.isUsableKey(it) }?.let { "That's not the whole access key. Copy it again." }
+        urlBox.setOnFocusChangeListener { _, focused -> if (!focused) urlBox.error = urlProblem() }
+        keyBox.setOnFocusChangeListener { _, focused -> if (!focused) keyBox.error = keyProblem() }
         onTextChange(urlBox) {
             connect.isEnabled = valid()
-            urlBox.error = if (urlBox.text.isNotBlank() && BankServer.cleanUrl(urlBox.text.toString()) == null) {
-                "Use the https:// address of your bank server"
-            } else {
-                null
-            }
+            if (urlProblem() == null) urlBox.error = null
         }
         onTextChange(keyBox) {
             connect.isEnabled = valid()
-            val key = keyBox.text.toString().trim()
-            keyBox.error = if (key.isNotEmpty() && !BankServer.isUsableKey(key)) "That's not the whole access key. Copy it again." else null
+            if (keyProblem() == null) keyBox.error = null
         }
         connect.setOnClickListener {
             val url = BankServer.cleanUrl(urlBox.text.toString()) ?: return@setOnClickListener
@@ -1277,7 +1282,8 @@ class MainActivity : Activity() {
             showBills()
             recalculate()
         } catch (e: Exception) {
-            Log.e("Budget", "refresh failed", e) // adb logcat -s Budget
+            // The type and where it happened (adb logcat -s Budget), not the message, which could someday hold a number.
+            Log.e("Budget", "refresh failed: ${e.javaClass.name}\n" + e.stackTrace.joinToString("\n") { "    at $it" })
             // Said once per screen: every redraw would hit the same problem.
             if (!refreshFailureShown) {
                 refreshFailureShown = true
@@ -2428,6 +2434,7 @@ class MainActivity : Activity() {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
         onTextChange(amountBox) { updateLabels() }
+        onTextChange(nameBox) { updateLabels() }
         updateLabels()
 
         fun pickDate() {
@@ -2511,6 +2518,16 @@ class MainActivity : Activity() {
             field.requestFocus()
             field.announceForAccessibility(message)
         }
+        // A name another bill already has: warn once (bank payments assigned by name go to the first one); the
+        // same tap again keeps it. True when it warned.
+        fun warnSameName(bill: Bill, button: TextView): Boolean {
+            val sameName = bills.any { it.id !== bill.id && it.name.equals(bill.name, ignoreCase = true) }
+            if (!sameName || duplicateWarned == bill.name) return false
+            duplicateWarned = bill.name
+            fieldError(nameBox, "You already have a bill called ${bill.name}. Bank payments you assign by name go to " +
+                "the first one, so a different name (like ${bill.name} 2) is safer. Tap ${button.text} again to keep it.")
+            return true
+        }
         saveButton.setOnClickListener {
             if (closing) return@setOnClickListener // a second tap while the sheet is closing
             val bill = buildBill()
@@ -2526,13 +2543,7 @@ class MainActivity : Activity() {
                 }
                 return@setOnClickListener
             }
-            val sameName = bills.any { it.id !== bill.id && it.name.equals(bill.name, ignoreCase = true) }
-            if (sameName && duplicateWarned != bill.name) {
-                duplicateWarned = bill.name
-                fieldError(nameBox, "You already have a bill called ${bill.name}. Bank payments you assign by name go to " +
-                    "the first one, so a different name (like ${bill.name} 2) is safer. Tap ${saveButton.text} again to keep it.")
-                return@setOnClickListener
-            }
+            if (warnSameName(bill, saveButton)) return@setOnClickListener
             // Moving a bill that's due now to a later date: did they pay this one (so it isn't counted as spending)?
             // `shown` is only set when editing, so `existing` is non-null here (the compiler knows it too).
             val movedFrom = shown?.takeIf {
@@ -2555,7 +2566,9 @@ class MainActivity : Activity() {
         // Saves any edits first, then marks the next one paid.
         paidButton.setOnClickListener {
             if (closing || existing == null) return@setOnClickListener
-            commit(buildBill() ?: existing, quiet = true) { markPaid(it) }
+            val bill = buildBill() ?: existing
+            if (warnSameName(bill, paidButton)) return@setOnClickListener
+            commit(bill, quiet = true) { markPaid(it) }
         }
 
         // Slide up from the bottom; the dimmed area only closes the sheet once it's fully open.
@@ -2795,9 +2808,10 @@ class MainActivity : Activity() {
                         }
                     }
                     if (swiping) {
-                        view.translationX = startX + dx
-                        paidLayer.visibility = if (dx > 0) View.VISIBLE else View.INVISIBLE
-                        deleteLayer.visibility = if (dx < 0) View.VISIBLE else View.INVISIBLE
+                        val x = startX + dx
+                        view.translationX = x
+                        paidLayer.visibility = if (x > 0) View.VISIBLE else View.INVISIBLE
+                        deleteLayer.visibility = if (x < 0) View.VISIBLE else View.INVISIBLE
                     }
                 }
                 MotionEvent.ACTION_UP -> {
@@ -2999,9 +3013,6 @@ class MainActivity : Activity() {
             read("bills") { prefs.getString("bills", null) }
         }
         prefs.edit()
-            // Left by v2.0 ("income") and v2.3-2.4 ("bills_open"); nothing has read them since.
-            .remove("income")
-            .remove("bills_open")
             .putString("balance", balance.toString())
             .putString("balance_updated", balanceUpdated?.toString())
             .putString("pending_pay", pendingPay?.toString())
@@ -3041,6 +3052,8 @@ class MainActivity : Activity() {
             showUpdateState()
             return
         }
+        if (Running.checkingUpdate) return
+        Running.checkingUpdate = true
         val current = BuildConfig.VERSION_NAME
         Running.updateStatus = "checking…"
         thread(name = "budget-update-check") {
@@ -3065,6 +3078,7 @@ class MainActivity : Activity() {
                 }
             }
             Running.main.post {
+                Running.checkingUpdate = false
                 val update = result.getOrNull()
                 val error = result.exceptionOrNull()
                 error?.let { Log.w("Budget", "Update check failed: ${it.javaClass.name} ${(it as? GitHubReplyException)?.message.orEmpty()}") }
@@ -3080,6 +3094,8 @@ class MainActivity : Activity() {
                     else -> "version ${update.version} is ready"
                 }
                 if (result.isSuccess) {
+                    // A failed download was about the old release; a different one starts fresh.
+                    if (update?.version != Running.update?.version) Running.downloadFailure = null
                     Running.update = update
                     Running.updateCheckedAt = System.currentTimeMillis()
                 }
@@ -3121,9 +3137,9 @@ class MainActivity : Activity() {
         val release = Running.update?.takeIf { !BuildConfig.DEBUG } ?: return
         if (Running.downloading) return
         if (!packageManager.canRequestPackageInstalls()) {
-            Toast.makeText(this, "Allow Budget to install updates, then tap Update again", Toast.LENGTH_LONG).show()
             try {
                 startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+                Toast.makeText(this, "Allow Budget to install updates, then tap Update again", Toast.LENGTH_LONG).show()
             } catch (e: ActivityNotFoundException) {
                 // Some phones (work profiles, managed devices) don't have this screen.
                 tell("Turn on Settings › Apps › Budget › Install unknown apps, then tap Update again.")
@@ -3262,6 +3278,7 @@ private object Running {
     var updateCheckedAt = 0L
     var updateStatus = "checking…" // for Settings
     var updateFailedAt = 0L // SystemClock.elapsedRealtime() of the last failed check, 0 if it worked
+    var checkingUpdate = false
     var downloading = false
     var downloadFailure: String? = null // shown on the update banner until the next try
     @Volatile var sessionId = -1 // the install session this process is writing or waiting on
@@ -3316,7 +3333,8 @@ private fun enableStrictModeInDebug() {
         .detectLeakedRegistrationObjects()
         .detectLeakedSqlLiteObjects()
         .detectFileUriExposure()
-        .detectCleartextNetwork()
+        // (No detectCleartextNetwork: it logs part of the packet, which would include the access key when testing
+        // against a local fake bank server; network_security_config.xml already allows cleartext only to localhost.)
         .detectContentUriWithoutPermission()
     if (Build.VERSION.SDK_INT >= 28) vm.detectNonSdkApiUsage()
     if (Build.VERSION.SDK_INT >= 29) vm.detectCredentialProtectedWhileLocked()
