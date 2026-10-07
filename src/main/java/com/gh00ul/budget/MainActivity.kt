@@ -32,6 +32,7 @@ import android.text.Spanned
 import android.text.TextWatcher
 import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
@@ -652,13 +653,15 @@ class MainActivity : Activity() {
     private fun spendAccounts(): Set<String> =
         bank.accounts.filter { it.id == bank.accountId || it.isCredit }.map { it.id }.toSet()
 
-    // Moving money between your own accounts, or paying a card or loan. Spending, though: cash from an ATM,
-    // money sent through apps like Cash App or Venmo (and money back through them), and pay-later installments.
+    // Moving money between your own accounts, paying a card or loan, or borrowing (a loan or pay advance isn't
+    // a refund). Spending, though: cash from an ATM, money sent through apps like Cash App or Venmo (and money
+    // back through them), and pay-later installments.
     private fun isTransfer(t: BankTxn): Boolean {
         val category = "${t.category} ${t.detail}".lowercase()
         if ("withdrawal" in category || "from apps" in category || "bnpl" in category) return false
         val name = t.name.uppercase()
         return "transfer in" in category || "transfer out" in category || "loan payment" in category ||
+            "loan disbursement" in category ||
             "credit card payment" in category || name.contains("PAYMENT TO CREDIT CARD") ||
             name.contains("CREDIT CARD PAYMENT") || name.contains("CREDIT CARD PMT") ||
             name.contains("PAYMENT THANK YOU") || name.contains("PAYMENT - THANK YOU") ||
@@ -793,8 +796,9 @@ class MainActivity : Activity() {
     }
 
     // The checking balance becomes the bank balance, paychecks are checked off, and paid bills are marked.
-    private fun applyBank(snapshot: BankSnapshot, announce: Boolean) {
-        bank.saveSnapshot(snapshot)
+    // snapshot = null re-reads what the last sync saved (after picking a different account).
+    private fun applyBank(snapshot: BankSnapshot?, announce: Boolean) {
+        snapshot?.let { bank.saveSnapshot(it) }
         val account = bank.account
         val value = account?.let { it.available ?: it.current }
         if (account == null || value == null) {
@@ -814,6 +818,7 @@ class MainActivity : Activity() {
         refresh()
         when {
             marked.isNotEmpty() -> showSnack("${marked.joinToString()} marked paid from your bank")
+            announce && bank.error != null -> showSnack("Sync problem · tap your bank balance for details")
             announce -> showSnack("Synced with ${account.institution ?: "your bank"}")
         }
     }
@@ -921,9 +926,11 @@ class MainActivity : Activity() {
             .setItems(arrayOf("Sync now", "Use a different account", "Disconnect")) { _, which ->
                 when (which) {
                     0 -> syncBank(force = true)
+                    // The saved balance right away, then a real sync (which keeps any sync problem showing).
                     1 -> pickAccount(bank.accounts.filter { it.type == "depository" }) {
                         bank.chooseAccount(it.id)
-                        applyBank(BankSnapshot(bank.accounts, bank.txns, emptyList()), announce = true)
+                        applyBank(null, announce = false)
+                        syncBank(force = true)
                     }
                     else -> AlertDialog.Builder(this)
                         .setTitle("Disconnect your bank?")
@@ -1068,7 +1075,7 @@ class MainActivity : Activity() {
         when (s.kind) {
             Kind.SPEND -> {
                 choices += "Don't count it" to { set("skip") }
-                if (bills.isNotEmpty()) choices += "It paid a bill…" to {
+                if (bills.isNotEmpty() && t.amount < 0) choices += "It paid a bill…" to {
                     AlertDialog.Builder(this)
                         .setTitle("Which bill did it pay?")
                         .setItems(bills.map { "${it.name} · ${money.format(it.amount)}" }.toTypedArray()) { _, which ->
@@ -1107,6 +1114,7 @@ class MainActivity : Activity() {
             showBills()
             recalculate()
         } catch (e: Exception) {
+            Log.e("Budget", "refresh failed", e) // adb logcat -s Budget
             Toast.makeText(this, "Something went wrong showing your budget. Try updating the app.", Toast.LENGTH_LONG).show()
         }
     }
@@ -1830,8 +1838,10 @@ class MainActivity : Activity() {
             if (unexplained < 0.005) return finish()
             AlertDialog.Builder(this)
                 .setTitle("Did you spend ${money.format(unexplained)}?")
-                .setMessage("This is ${money.format(unexplained)} less than the ${money.format(oldBalance)} you entered " +
-                    "earlier today. Was that spending, or was ${money.format(oldBalance)} a mistake?")
+                .setMessage("This is ${money.format(drop)} less than the ${money.format(oldBalance)} from earlier today" +
+                    (if (explained > 0) ", and ${money.format(explained)} of that is bills due today. Was the other " +
+                        "${money.format(unexplained)} spending" else ". Was that spending") +
+                    ", or was ${money.format(oldBalance)} a mistake?")
                 .setPositiveButton("Spending") { _, _ -> finish() }
                 .setNegativeButton("A mistake") { _, _ ->
                     weekStartBalance = cents(weekStartBalance - unexplained)

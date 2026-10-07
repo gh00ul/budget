@@ -15,7 +15,7 @@ The app can pull your balance and transactions through the Plaid bank server fro
 Open **Settings → Connect your bank** and enter the server's address (`https://….workers.dev`) and its `APP_API_TOKEN`, then pick your checking account. After that:
 
 - **Bank balance** comes from that checking account (available balance) every time you open the app, at most every half hour. Tap it to sync now.
-- **Spent this week** is every purchase since payday on that checking account and your credit cards, minus refunds. Cash withdrawals, money sent through apps like Cash App or Venmo (minus money back through them) and pay-later installments count too. Bills, transfers between your own accounts, card and loan payments, and paychecks don't. Tap **This week's purchases** to see the list and change how any one counts.
+- **Spent this week** is every purchase since payday on that checking account and your credit cards, minus refunds. Cash withdrawals, money sent through apps like Cash App or Venmo (minus money back through them) and pay-later installments count too. Bills, transfers between your own accounts, card and loan payments, loans and pay advances you receive (they aren't refunds), and paychecks don't. Tap **This week's purchases** to see the list and change how any one counts.
 - **Bills** are marked paid when a matching payment shows up (same amount, or a similar amount with the bill's name in it, within 4 days of the due date).
 - **Paychecks** that land a day or two early, or late on payday, are counted on payday.
 
