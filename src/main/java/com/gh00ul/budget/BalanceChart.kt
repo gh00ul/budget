@@ -11,17 +11,18 @@ import android.graphics.Typeface
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.View
+import kotlin.math.abs
 
-// Line chart of the balance after each pay period. The first point is today (drawn filled, since it's
-// real); the rest are forecasts. Labels today's and the final value, and the low point when the balance
-// actually dips (or goes negative).
+// Line chart of the balance after each pay period. The first point ("Now") is today's bank balance minus the
+// bills still due before the next payday, so it's a forecast like the rest; it's drawn solid only to mark where
+// the line starts. Each later point is the balance after that payday's paycheck and bills. Labels the first and
+// the final value, and the low point when the balance actually dips (or goes negative).
 class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs) {
     private var labels: List<String> = emptyList()
     private var values: List<Double> = emptyList()
     private var format: (Double) -> String = { it.toString() }
 
     private val dp = resources.displayMetrics.density
-    private val sp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 1f, resources.displayMetrics)
     private val medium = Typeface.create("sans-serif-medium", Typeface.NORMAL)
 
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -44,19 +45,27 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
         color = context.getColor(R.color.hint)
     }
     private val axisText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = 11 * sp
+        textSize = sp(11f)
         textAlign = Paint.Align.CENTER
         color = context.getColor(R.color.text_secondary)
     }
     private val valueText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = 12 * sp
+        textSize = sp(12f)
         textAlign = Paint.Align.CENTER
         typeface = medium
     }
 
+    // Space kept between two labels moved apart so they don't touch.
+    private val labelGap = 4 * dp
+
     // Reused on every draw (onDraw runs each animation frame, so it shouldn't allocate).
     private val line = Path()
     private val area = Path()
+
+    // Each text size is converted on its own (rather than multiplying 1sp) so Android 14+'s non-linear font
+    // scaling applies, as it does to the app's other text: big sizes grow less than small ones. For the 11sp and
+    // 12sp used here the result is the same either way.
+    private fun sp(size: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, size, resources.displayMetrics)
 
     // `description` is what a screen reader says for the chart.
     fun setData(labels: List<String>, values: List<Double>, description: String, format: (Double) -> String) {
@@ -125,28 +134,81 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
         values.forEachIndexed { i, v ->
             val radius = if (showLow && i == low) 6 * dp else 4 * dp
             canvas.drawCircle(x(i), y(v), radius, dotPaint)
-            if (i != 0) canvas.drawCircle(x(i), y(v), radius - 2 * dp, holePaint) // today is solid
-            canvas.drawText(labels.getOrElse(i) { "" }, x(i), height - 6 * dp, axisText)
+            if (i != 0) canvas.drawCircle(x(i), y(v), radius - 2 * dp, holePaint) // the first point is solid
         }
 
+        // Dates under the points, kept inside the view (with large text the first and last ran off the edges).
+        // If one would run into the date before it or into the last date (very large text on a narrow screen),
+        // it's left out: its point still shows, and the screen-reader description has every value. The first
+        // and last dates are always drawn.
+        val axisY = height - 6 * dp
+        val endLabel = labels.getOrElse(last) { "" }
+        val endHalf = axisText.measureText(endLabel) / 2
+        val endX = labelX(x(last), endHalf)
+        var drawnTo = Float.NEGATIVE_INFINITY
+        for (i in 0 until last) {
+            val label = labels.getOrElse(i) { "" }
+            val half = axisText.measureText(label) / 2
+            val lx = labelX(x(i), half)
+            if (i > 0 && (lx - half < drawnTo + labelGap || lx + half > endX - endHalf - labelGap)) continue
+            canvas.drawText(label, lx, axisY, axisText)
+            drawnTo = lx + half
+        }
+        canvas.drawText(endLabel, endX, axisY, axisText)
+
+        val firstText = format(values[0])
+        val firstHalf = valueText.measureText(firstText) / 2
+        val firstX = labelX(x(0), firstHalf)
+        val firstY = labelY(y(values[0]))
         valueText.color = secondary
-        drawLabel(canvas, format(values[0]), x(0), y(values[0]))
+        canvas.drawText(firstText, firstX, firstY, valueText)
+        val lastText = format(values[last])
+        val lastHalf = valueText.measureText(lastText) / 2
+        val lastX = labelX(x(last), lastHalf)
+        val lastY = labelY(y(values[last]))
         valueText.color = if (values[last] < 0) negative else textColor
-        drawLabel(canvas, format(values[last]), x(last), y(values[last]))
+        canvas.drawText(lastText, lastX, lastY, valueText)
         if (showLow && low != last && low != 0) {
+            val text = "Low ${format(values[low])}"
+            val half = valueText.measureText(text) / 2
+            fun hitsFirst(lx: Float, ly: Float) = overlaps(lx, half, ly, firstX, firstHalf, firstY)
+            fun hitsEither(lx: Float, ly: Float) = hitsFirst(lx, ly) || overlaps(lx, half, ly, lastX, lastHalf, lastY)
+            val px = x(low)
+            val py = y(values[low])
+            var lx = labelX(px, half)
+            var ly = labelY(py)
+            // A small dip right next to the first or last point puts this label on top of theirs (mostly with
+            // large text). Then it goes under its point if that stays clear of the dates, or else slides sideways
+            // off the other label, as long as it still spans its own point. Otherwise it stays where it was.
+            if (hitsEither(lx, ly)) {
+                val under = below(py)
+                val slid = if (hitsFirst(lx, ly)) firstX + firstHalf + labelGap + half else lastX - lastHalf - labelGap - half
+                if (under + valueText.descent() <= axisY + axisText.ascent() && !hitsEither(lx, under)) {
+                    ly = under
+                } else if (abs(slid - px) <= half && slid >= half && slid <= width - half && !hitsEither(slid, ly)) {
+                    lx = slid
+                }
+            }
             valueText.color = if (values[low] < 0) negative else textColor
-            drawLabel(canvas, "Low ${format(values[low])}", x(low), y(values[low]))
+            canvas.drawText(text, lx, ly, valueText)
         }
     }
 
-    // Draws a value label above its point (below it if there's no room), kept inside the view.
-    private fun drawLabel(canvas: Canvas, text: String, px: Float, py: Float) {
-        val half = valueText.measureText(text) / 2
-        val lx = if (2 * half >= width) width / 2f else px.coerceIn(half, width - half)
+    // A label's centre: on its point, but kept inside the view (centred if it's wider than the view).
+    private fun labelX(px: Float, half: Float) = if (2 * half >= width) width / 2f else px.coerceIn(half, width - half)
+
+    // A value label's baseline: above its point, or below it if there's no room above.
+    private fun labelY(py: Float): Float {
         val above = py - 12 * dp
-        val ly = if (above < valueText.textSize) py + 22 * dp else above
-        canvas.drawText(text, lx, ly, valueText)
+        return if (above < valueText.textSize) below(py) else above
     }
+
+    // Below the point with the same gap at any text size (22dp at the default size, as before).
+    private fun below(py: Float) = py + 10 * dp + valueText.textSize
+
+    // Whether two value labels' text boxes overlap (both are one line of valueText, so they're the same height).
+    private fun overlaps(ax: Float, aHalf: Float, ay: Float, bx: Float, bHalf: Float, by: Float) =
+        abs(ax - bx) < aHalf + bHalf && abs(ay - by) < valueText.descent() - valueText.ascent()
 
     private fun withAlpha(color: Int, alpha: Int) = (color and 0x00FFFFFF) or (alpha shl 24)
 }

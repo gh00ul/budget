@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Green top of the date picker, rounded to match the dialog. -->
+<!-- Green top of the date picker, rounded to match the dialog. Used in light and dark mode.
+     #1B5E20 (the start color of the light-mode Safe to spend card) rather than brand #2E7D32: the header's
+     unselected line (year or date) is 70% white, which is 4.79:1 here but only 3.39:1 on brand (WCAG AA needs
+     4.5:1). The selected line is full white: 7.87:1. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="@color/brand" />
+    <solid android:color="#1B5E20" />
     <corners android:topLeftRadius="28dp" android:topRightRadius="28dp" />
 </shape>

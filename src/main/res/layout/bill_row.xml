@@ -7,17 +7,22 @@
 
     <!-- The swipe layers are visual only (the layer hides its children from screen readers; the row offers
          "Mark paid" / "Delete" as accessibility actions instead), so their icons are decorative. -->
+    <!-- RtlHardcoded: the swipe is physical, not tied to reading direction. Swiping right uncovers the left edge
+         and marks the bill paid; swiping left uncovers the right edge and deletes it, in every language. So each
+         label sits on the side it's uncovered from: left/right, which is the same as start/end left-to-right,
+         but start/end put both labels on the still-covered side in right-to-left languages. -->
     <LinearLayout
         android:id="@+id/bill_row_paid_layer"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="@drawable/paid_bg"
-        android:gravity="center_vertical|start"
+        android:gravity="center_vertical|left"
         android:importantForAccessibility="noHideDescendants"
         android:orientation="horizontal"
-        android:paddingStart="20dp"
-        android:paddingEnd="0dp"
-        android:visibility="invisible">
+        android:paddingLeft="20dp"
+        android:paddingRight="0dp"
+        android:visibility="invisible"
+        tools:ignore="RtlHardcoded">
 
         <ImageView
             android:layout_width="20dp"
@@ -36,17 +41,19 @@
             android:textSize="15sp" />
     </LinearLayout>
 
+    <!-- RtlHardcoded: on the right edge in every language, the side a swipe to the left uncovers (see above). -->
     <LinearLayout
         android:id="@+id/bill_row_delete_layer"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="@drawable/delete_bg"
-        android:gravity="center_vertical|end"
+        android:gravity="center_vertical|right"
         android:importantForAccessibility="noHideDescendants"
         android:orientation="horizontal"
-        android:paddingStart="0dp"
-        android:paddingEnd="20dp"
-        android:visibility="invisible">
+        android:paddingLeft="0dp"
+        android:paddingRight="20dp"
+        android:visibility="invisible"
+        tools:ignore="RtlHardcoded">
 
         <ImageView
             android:layout_width="20dp"
@@ -126,11 +133,13 @@
                 android:textColor="@color/text"
                 android:textSize="16sp" />
 
+            <!-- No line limit: "Oct 10 paid ✓ · next due in 12 days · Every 2 weeks" needs a third line with
+                 large text or on a narrow screen, and a cut-off line shows no "…". The swipe layers are
+                 match_parent in the same frame, so they grow with the row. -->
             <TextView
                 android:id="@+id/bill_row_due"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:maxLines="2"
                 android:textColor="@color/text_secondary"
                 android:textSize="13sp" />
         </LinearLayout>

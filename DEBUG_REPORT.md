@@ -294,3 +294,41 @@ Test writers (in parallel, disjoint files; each compile-checked and ran its file
 | T6-3 | Low | `jsonWritable` (the S-1 guard) was bound to Android-only `JSONStringer` signatures, so it couldn't be tested on the JVM. | Rewritten as a plain walk over the value looking for NaN/infinite numbers — the same rule Android enforces. | Test agent B |
 | T6-4 | Info | `parseMoney("1e9")` reads 19, and a Unicode minus "−20" reads +20 (all but digits, `.`, `-` is dropped). Unreachable: the amount fields can't take letters or "−". Documented in code and pinned by a test; `parseMoney`'s regex is now compiled once (it runs on every keystroke). | Test agent B |
 | — | Info | A wrong comment on `billWords` ("Phone bill" does have a matchable word: "phone"). Fixed. | Test agent B |
+
+---
+
+## Phase 7 — UI polish
+
+Two UI agents in parallel, split by file: **UI agent 1** (`activity_main.xml`, `themes.xml`, `date_header.xml` — Summary, setup, tiles, message bar, date picker) and **UI agent 2** (`bill_row.xml`, `forecast_row.xml`, `forecast_end_row.xml`, `BalanceChart.kt` — rows and chart). The lead did `MainActivity.kt`. Rule: the existing look stays at the default font size in both themes; changes only kick in at large font, or fix something visibly broken. Build ✅, unit tests ✅ (280), lint 0 errors / 3 deliberate warnings (one new `TooDeepLayout`, justified in the layout). **No screenshots** — no device this session.
+
+**One shared mechanism for large text:** layout rows tagged `stack_when_large_text` are restacked by one helper, `stackForLargeText()`, when the font scale is ≥ 1.3 (the owner's setting, and the threshold the bill sheet already used): label above value, value starting at the left, side margins dropped. It's applied to the main screen, every bill/payday/month-end row and the bill sheet. Tagged: the 6 setup/glance rows, "Your pay", the bank balance row, each payday row's body and its paycheck title + "usually $750" pill, and the month-end row.
+
+| ID | Sev | Problem (at the owner's large font unless noted) | Fix | Files | By |
+|---|---|---|---|---|---|
+| R-1 | High | Summary and setup rows squeezed the value until money split mid-number ("$1,234.5" / "6 · 3 bills") or was cut with "…". | Stacking rows (above); labels get `ellipsize`. | activity_main.xml, themes.xml, MainActivity.kt | UI agent 1, lead |
+| R-4, R-7 | Medium | Paydays: "usually $750" pill broke mid-word into a tall narrow pill; at 2.0× "+$1,234.56" split mid-number. Bank balance row likewise. | Stacking rows; the amount keeps its right-aligned column. | forecast_row.xml, forecast_end_row.xml, activity_main.xml | UI agents 1, 2 |
+| R-2 | Medium | Bill rows cut the due text ("…paid ✓ · next due in 12 days · Every 2 weeks") with no "…". | Wraps fully; the swipe layers grow with the row. | bill_row.xml | UI agent 2 |
+| R-3 | Medium | The message bar cut its second half (e.g. the new balance after "Mark paid"). | Grows to fit (upward, beside the + button). At 2.0× it can briefly cover the bottom of the last card while showing. | activity_main.xml | UI agent 1 |
+| U-4 | Medium | With large text and the keyboard up, the bill sheet ran under the status bar/camera cutout. | The sheet stops below the status bar (its form scrolls); side insets for landscape. | MainActivity.kt | UI, lead |
+| R-5, R-6 | Low | Tile captions cut at 2.0×; "-$12,345.67" clipped in a tile. | Captions wrap, the two tiles stay the same height; autosize can go down to 10sp. **Visible at default size:** the two Summary tiles now have equal heights (before, "Extra savings" was ~14dp shorter than "End of month"). | themes.xml, activity_main.xml | UI agent 1 |
+| R-8 | Low | Green buttons were a fixed 48dp tall, so a wrapped label would clip. | `wrap_content` + `minHeight 48dp` (identical at default). | themes.xml | UI agent 1 |
+| R-9/U-7, U-8, F-28 | Low | Chart: first/last dates could be cut at the edges; "Low $X" could overlap "Now"/the last label; text ignored Android 14+ non-linear font scaling. | Dates clamped inside the view (crowded middle dates skipped); "Low" moves below (or aside) when it would overlap; sizes via `applyDimension(SP, n)`. No new allocations in `onDraw`. | BalanceChart.kt | UI agent 2 |
+| R-10 | Low | Date picker header text was 3.39:1 contrast (WCAG AA needs 4.5:1). | Header green #2E7D32 → #1B5E20 (the hero's dark green): 4.79:1. **Visible:** slightly darker header. | date_header.xml | UI agent 1 |
+| R-11 | Low | Android 8–10: black navigation bar under the white tab bar in light mode. | Tab-bar color with dark buttons in light mode. | MainActivity.kt | Resources, lead |
+| U-14 | Low | Right-to-left languages: the swipe "Paid"/"Delete" labels sat on the wrong side. | Physical left/right (identical in LTR). | bill_row.xml | UI agent 2 |
+| U-2 | Medium | TalkBack lost its place on the bill list whenever it was redrawn (e.g. after "Mark paid", which also moves the bill). | Focus goes back to the same bill's row after a redraw (only while TalkBack is on). | MainActivity.kt | UI, lead |
+| U-5 | Low | Saving a balance redrew twice, restarting the count-up; TalkBack announced intermediate values, on any tab. | No restart for the same number; announced once, after changes settle, on Summary only. | MainActivity.kt | UI, lead |
+| U-9 | Low | TalkBack called the chart's first point "now" though it's after this week's bills. | Says "before payday"; class comment fixed. | MainActivity.kt, BalanceChart.kt | UI |
+| U-10 | Low | "Bill buffer −$0.00", "+$0" for a $0 paycheck, "Spent $40 of -$276.92 this week", "−$0.00" transactions. | Plain "$0.00", "No pay", "Spent $40 this week". | MainActivity.kt | UI, lead |
+| U-11 | Low | Grabbing a bill row while it slid back made it jump and the layer flicker. | Animation cancelled on touch, swipe continues from where the row is. | MainActivity.kt | UI, lead |
+| U-12 | Low | Tapping Undo during its 150 ms fade did nothing. | Disabled while fading. | MainActivity.kt | UI, lead |
+| U-13 | Low | Expanded payday rows collapsed on rotation; TalkBack didn't say whether a row was open. | Saved with the screen state (old dates pruned); "Expanded"/"Collapsed" state on Android 11+. | MainActivity.kt | UI, lead |
+
+Checked and fine: every touch target ≥ 48dp, all text in sp, no `fitsSystemWindows` fighting the insets code, every color has a dark-mode value (the sheet's scrim is deliberately the same in both).
+
+Left / owner's call:
+
+- **Threshold 1.3×.** At 1.1–1.2× on the 360dp "screen zoom" one Summary amount can still split; lowering the threshold in `stackForLargeText` would cover it.
+- **Bill rows at 2.0×** squeeze names (the amount can't split). Stacking them too would also move the amount onto its own line at 1.3× — a visible change at the owner's everyday size, so it wasn't done; a second, 1.8× tier would avoid that.
+- **Message bar padding:** a 3–5-line message bar can briefly cover the bottom of the last card; reserving page padding while it shows would need more code.
+- U-15 (a half-typed bill sheet is lost on rotation).

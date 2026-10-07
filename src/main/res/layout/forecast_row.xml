@@ -49,69 +49,102 @@
                 android:textSize="18sp" />
         </LinearLayout>
 
+        <!-- The text and what's left in the bank, which with large text goes on its own line under the text
+             (still at the end) so "+$1,234.56" isn't squeezed beside it and split mid-number. Takes the rest
+             of the row: the last match_parent child of a horizontal LinearLayout gets exactly the width left
+             (a weight here would nest weights). baselineAligned="false" changes nothing visually: neither
+             child reports a baseline (a vertical LinearLayout and a FrameLayout), so nothing was ever aligned. -->
         <LinearLayout
-            android:layout_width="0dp"
+            android:id="@+id/forecast_body"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginHorizontal="12dp"
-            android:layout_weight="1"
-            android:orientation="vertical">
+            android:layout_marginStart="12dp"
+            android:baselineAligned="false"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:tag="stack_when_large_text">
 
             <LinearLayout
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
+                android:layout_marginEnd="12dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <!-- Paycheck and "usually $750"; with large text the pill goes under the paycheck instead of
+                     being squeezed into a tall, narrow pill beside it. -->
+                <LinearLayout
+                    android:id="@+id/forecast_title_row"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:tag="stack_when_large_text">
+
+                    <TextView
+                        android:id="@+id/forecast_title"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="sans-serif-medium"
+                        android:fontFeatureSettings="tnum"
+                        android:textColor="@color/text"
+                        android:textSize="16sp" />
+
+                    <!-- "usually $750" when this paycheck isn't the usual amount. The frame holds the gap (and
+                         spans the row when stacked) so the pill itself stays the size of its text. -->
+                    <FrameLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp">
+
+                        <TextView
+                            android:id="@+id/forecast_changed"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:background="@drawable/chip"
+                            android:fontFamily="sans-serif-medium"
+                            android:paddingHorizontal="6dp"
+                            android:paddingVertical="1dp"
+                            android:textColor="@color/chip_text"
+                            android:textSize="11sp"
+                            android:visibility="gone" />
+                    </FrameLayout>
+                </LinearLayout>
 
                 <TextView
-                    android:id="@+id/forecast_title"
+                    android:id="@+id/forecast_bills"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="2"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp" />
+
+                <!-- "Short $30" when this payday can't cover its bills -->
+                <TextView
+                    android:id="@+id/forecast_note"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:fontFamily="sans-serif-medium"
-                    android:fontFeatureSettings="tnum"
-                    android:textColor="@color/text"
-                    android:textSize="16sp" />
-
-                <!-- "usually $750" when this paycheck isn't the usual amount -->
-                <TextView
-                    android:id="@+id/forecast_changed"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="6dp"
-                    android:background="@drawable/chip"
-                    android:fontFamily="sans-serif-medium"
-                    android:paddingHorizontal="6dp"
-                    android:paddingVertical="1dp"
-                    android:textColor="@color/chip_text"
-                    android:textSize="11sp"
+                    android:textColor="@color/negative"
+                    android:textSize="13sp"
                     android:visibility="gone" />
             </LinearLayout>
 
-            <TextView
-                android:id="@+id/forecast_bills"
+            <!-- The frame spans the row when stacked, keeping the amount at the end like the other rows' -->
+            <FrameLayout
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:maxLines="2"
-                android:textColor="@color/text_secondary"
-                android:textSize="13sp" />
+                android:layout_height="wrap_content">
 
-            <!-- "Short $30" when this payday can't cover its bills -->
-            <TextView
-                android:id="@+id/forecast_note"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:fontFamily="sans-serif-medium"
-                android:textColor="@color/negative"
-                android:textSize="13sp"
-                android:visibility="gone" />
+                <TextView
+                    android:id="@+id/forecast_left"
+                    style="@style/Money"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="end"
+                    android:textSize="16sp" />
+            </FrameLayout>
         </LinearLayout>
-
-        <TextView
-            android:id="@+id/forecast_left"
-            style="@style/Money"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textSize="16sp" />
     </LinearLayout>
 
     <!-- Details: each bill in this pay period, plus an action -->

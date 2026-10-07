@@ -185,6 +185,7 @@ class MainActivity : Activity() {
     private val hideSnack = Runnable {
         pendingDeletes.clear()
         snackUndo = null
+        undoButton.isEnabled = false // fading out: a tap now would do nothing
         undoBar.animate().alpha(0f).translationY(dp(16).toFloat()).setDuration(150)
             .withEndAction { undoBar.visibility = View.GONE }.start()
     }
@@ -248,6 +249,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         Running.screen = WeakReference(this)
         setContentView(R.layout.activity_main)
+        stackForLargeText(findViewById(R.id.root))
 
         fitToSystemBars()
         setUpTabs()
@@ -284,6 +286,7 @@ class MainActivity : Activity() {
         // question that was open.
         if (savedInstanceState != null) {
             showTab(savedInstanceState.getInt("tab", 0), animate = false)
+            savedInstanceState.getLongArray("open_rows")?.forEach { openForecastRows += LocalDate.ofEpochDay(it) }
             restoreUndo(savedInstanceState)
             restoreFollowUp(savedInstanceState)
         } else if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY == 0) {
@@ -348,6 +351,7 @@ class MainActivity : Activity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putInt("tab", currentTab)
+        outState.putLongArray("open_rows", openForecastRows.map { it.toEpochDay() }.toLongArray())
         if (pendingDeletes.isNotEmpty()) {
             val undo = JSONArray()
             for ((index, bill) in pendingDeletes) undo.put(JSONObject().put("index", index).put("bill", billToJson(bill)))
@@ -562,10 +566,18 @@ class MainActivity : Activity() {
     // Android 15+ draws the app behind the status/navigation bars, so pad the pages and tab bar clear of
     // them. The tab bar's color runs down behind the phone's navigation buttons.
     // setDecorFitsSystemWindows and navigationBarColor are deprecated in API 35 because 35+ is always
-    // edge-to-edge (where they do nothing); Android 11-14 still need them to get the same layout.
+    // edge-to-edge (where they do nothing); Android 11-14 still need them to get the same layout. On Android 8-10
+    // the app stays clear of the bars, so the navigation bar just gets the tab bar's color (it was black under the
+    // white tab bar) with dark buttons in light mode; SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR is how those versions do it.
     @Suppress("DEPRECATION")
     private fun fitToSystemBars() {
-        if (Build.VERSION.SDK_INT < 30) return
+        if (Build.VERSION.SDK_INT < 30) {
+            window.navigationBarColor = getColor(R.color.card)
+            if (!isNight()) {
+                window.decorView.systemUiVisibility = window.decorView.systemUiVisibility or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+            }
+            return
+        }
         window.setDecorFitsSystemWindows(false)
         window.navigationBarColor = Color.TRANSPARENT
         window.isNavigationBarContrastEnforced = false
@@ -583,6 +595,27 @@ class MainActivity : Activity() {
             navBar.visibility = if (keyboardOpen) View.GONE else View.VISIBLE
             insets
         }
+    }
+
+    // Rows tagged "stack_when_large_text" in the layouts put their parts on separate lines once the font is large (1.3×
+    // and up, like the bill sheet's Repeats / Next due), so amounts never break in the middle of a number. Every
+    // part then spans the row, starts at the left, and loses its side margins. Applied to each new screen and row.
+    private fun stackForLargeText(root: View) {
+        if (resources.configuration.fontScale < 1.3f) return
+        if (root is LinearLayout && root.tag == "stack_when_large_text") {
+            root.orientation = LinearLayout.VERTICAL
+            for (i in 0 until root.childCount) {
+                val child = root.getChildAt(i)
+                val params = child.layoutParams as LinearLayout.LayoutParams
+                params.width = ViewGroup.LayoutParams.MATCH_PARENT
+                params.weight = 0f
+                params.marginStart = 0
+                params.marginEnd = 0
+                child.layoutParams = params
+                if (child is TextView) child.gravity = (child.gravity and Gravity.VERTICAL_GRAVITY_MASK) or Gravity.START
+            }
+        }
+        if (root is ViewGroup) for (i in 0 until root.childCount) stackForLargeText(root.getChildAt(i))
     }
 
     private fun isNight() =
@@ -1162,7 +1195,7 @@ class MainActivity : Activity() {
             })
         })
         row.addView(TextView(this).apply {
-            text = if (t.amount > 0) "+" + money.format(t.amount) else "−" + money.format(-t.amount)
+            text = if (t.amount > 0) "+" + money.format(t.amount) else minus(-t.amount)
             setTextColor(if (t.amount > 0) positive else if (s.kind == Kind.SPEND || s.kind == Kind.BILL) textColor else secondary)
             textSize = 15f
             fontFeatureSettings = "tnum"
@@ -1325,7 +1358,9 @@ class MainActivity : Activity() {
         val sorted = bills.sortedBy { next.getValue(it).toEpochDay() }
         val before = sorted.filter { next.getValue(it).isBefore(nextPayday) }
         val later = sorted.filter { !next.getValue(it).isBefore(nextPayday) }
+        val focused = focusedBillRow()
         billList.removeAllViews()
+        billRows.clear()
         fun section(title: String, total: String?) {
             val header = layoutInflater.inflate(R.layout.bill_section, billList, false)
             header.findViewById<TextView>(R.id.section_title).text = title
@@ -1340,6 +1375,7 @@ class MainActivity : Activity() {
             section(if (before.isEmpty()) "Coming up" else "Later", null)
             later.forEachIndexed { i, bill -> addBillRow(bill, next.getValue(bill), today, last = i == later.lastIndex) }
         }
+        focused?.let { id -> billRows[id]?.let { refocus(it) } }
         billsEmpty.visibility = if (bills.isEmpty()) View.VISIBLE else View.GONE
         billsHint.visibility = if (bills.isEmpty()) View.GONE else View.VISIBLE
         val perWeek = bills.sumOf { it.perWeek }
@@ -1358,8 +1394,24 @@ class MainActivity : Activity() {
         updateFab(animate = true)
     }
 
+    // The bill row (by bill id) a screen reader is on, so it can go back there after the list is redrawn: marking a
+    // bill paid moves it, and a redraw replaces every row. Only checked while TalkBack (or similar) is on.
+    private val billRows = mutableMapOf<Any, View>()
+
+    private fun focusedBillRow(): Any? {
+        if (!a11y.isTouchExplorationEnabled) return null
+        return billRows.entries.firstOrNull { it.value.createAccessibilityNodeInfo().isAccessibilityFocused }?.key
+    }
+
+    // Lint warns against moving accessibility focus; this only puts it back on the row it was on before the redraw.
+    @SuppressLint("AccessibilityFocus")
+    private fun refocus(view: View) {
+        view.post { view.performAccessibilityAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null) }
+    }
+
     private fun addBillRow(bill: Bill, due: LocalDate, today: LocalDate, last: Boolean) {
         val row = layoutInflater.inflate(R.layout.bill_row, billList, false)
+        stackForLargeText(row)
         val daysLeft = ChronoUnit.DAYS.between(today, due)
         val soon = daysLeft <= 3
         row.findViewById<View>(R.id.bill_row_chip).setBackgroundResource(if (soon) R.drawable.chip_warn else R.drawable.chip_today)
@@ -1390,6 +1442,7 @@ class MainActivity : Activity() {
         }
         row.findViewById<View>(R.id.bill_row_divider).visibility = if (last) View.GONE else View.VISIBLE
         val content = row.findViewById<View>(R.id.bill_row_content)
+        billRows[bill.id] = content
         content.contentDescription = "${bill.name}, ${money.format(bill.amount)}, next due ${due.format(dayFormat)}. $dueText"
         makeSwipeable(row, content, onTap = { openBillSheet(bill) }, onDelete = { deleteBill(bill) }, onPaid = { markPaid(bill) })
         billList.addView(row)
@@ -1417,6 +1470,7 @@ class MainActivity : Activity() {
         val endIfSpending = cents(endBillsOnly - maxOf(0.0, week.safe) * thisWeekPart - spendRest)
 
         forecastList.removeAllViews()
+        openForecastRows.removeAll { it.isBefore(today) } // rows for paydays that have passed are gone
         var running = week.bank
         var firstShortRow: Pair<LocalDate, Double>? = null
         val chartLabels = mutableListOf<String>()
@@ -1437,7 +1491,7 @@ class MainActivity : Activity() {
                 else -> start.dayOfMonth.toString()
             }
             chartValues += running
-            spoken += "${if (isPayday) start.format(dayFormat) else "now"} ${compactMoney(running)}"
+            spoken += "${if (isPayday) start.format(dayFormat) else "before payday"} ${compactMoney(running)}"
             forecastList.addView(forecastRow(start, isPayday, paycheck, due, billsDue, running, week))
             if (start == inTarget.lastOrNull()) {
                 forecastList.addView(endOfMonthRow(monthName, endBillsOnly, endIfSpending, targetEnd, paydays, start))
@@ -1471,6 +1525,7 @@ class MainActivity : Activity() {
         billsDue: Double, running: Double, week: Week,
     ): View {
         val row = layoutInflater.inflate(R.layout.forecast_row, forecastList, false)
+        stackForLargeText(row)
         row.findViewById<TextView>(R.id.chip_top).text = if (isPayday) start.format(weekday) else "Today"
         row.findViewById<TextView>(R.id.chip_day).text = start.dayOfMonth.toString()
         if (!isPayday) {
@@ -1522,10 +1577,14 @@ class MainActivity : Activity() {
                 else -> "Update bank balance"
             },
         ) { if (isPayday) editPaycheck(start) else editBalance() })
-        details.visibility = if (start in openForecastRows) View.VISIBLE else View.GONE
+        fun showOpen(open: Boolean) {
+            details.visibility = if (open) View.VISIBLE else View.GONE
+            if (Build.VERSION.SDK_INT >= 30) row.stateDescription = if (open) "Expanded" else "Collapsed"
+        }
+        showOpen(start in openForecastRows)
         row.setOnClickListener {
             val open = details.visibility != View.VISIBLE
-            details.visibility = if (open) View.VISIBLE else View.GONE
+            showOpen(open)
             if (open) openForecastRows += start else openForecastRows -= start
         }
         row.accessibilityDelegate = clickLabel("Show or hide details")
@@ -1538,6 +1597,7 @@ class MainActivity : Activity() {
         paydays: List<LocalDate>, lastPayday: LocalDate,
     ): View {
         val row = layoutInflater.inflate(R.layout.forecast_end_row, forecastList, false)
+        stackForLargeText(row)
         row.findViewById<TextView>(R.id.end_label).text = "End of $monthName"
         row.findViewById<TextView>(R.id.end_spending).text =
             "before spending · ${money.format(endIfSpending)} if you spend your weekly money"
@@ -1587,6 +1647,9 @@ class MainActivity : Activity() {
         }
         heroBreakdown.text = when {
             spent == null -> "Spending not counted yet" + (if (staleDays >= 2) " · balance is $staleDays days old" else "")
+            // (No "of" when bills take the whole paycheck: "of -$276.92" means nothing.)
+            week.weekMoney <= 0 -> "Spent ${shortMoney(spent)} this week" +
+                (if (week.daysTracked < 7) " (since ${week.trackedFrom?.format(weekday)})" else "")
             else -> "Spent ${shortMoney(spent)} of ${shortMoney(week.weekMoney)} this week" +
                 (if (week.daysTracked < 7) " (since ${week.trackedFrom?.format(weekday)})" else "")
         }
@@ -1641,7 +1704,8 @@ class MainActivity : Activity() {
         findViewById<ImageView>(R.id.balance_edit_icon).setImageResource(if (linked) R.drawable.ic_sync else R.drawable.ic_edit)
         findViewById<TextView>(R.id.log_purchase).text = if (linked) "This week's purchases" else "Log a purchase"
 
-        glancePayday.text = "${week.nextPayday.format(shortDate)} · +${shortMoney(paycheckOn(week.nextPayday))}"
+        val nextPay = paycheckOn(week.nextPayday)
+        glancePayday.text = "${week.nextPayday.format(shortDate)} · " + if (nextPay > 0) "+${shortMoney(nextPay)}" else "No pay"
         val nextBill = bills.minByOrNull { it.nextDue(today) }
         if (nextBill == null) {
             glanceBill.text = "None"
@@ -1661,6 +1725,8 @@ class MainActivity : Activity() {
 
     // Counts the headline number up or down to its new value, and tells screen readers it changed.
     private fun animateHero(target: Double) {
+        // Several redraws in a row (saving a balance redraws twice) mustn't restart the count to the same number.
+        if (heroAnimator?.isRunning == true && heroShown == target) return
         val from = heroShown ?: target
         heroShown = target
         heroAnimator?.cancel()
@@ -1668,7 +1734,11 @@ class MainActivity : Activity() {
             heroAmount.text = bigMoney(target)
             return
         }
-        if (a11y.isEnabled) hero.announceForAccessibility("Safe to spend now ${money.format(target)}")
+        // Said once, after a burst of changes settles (a balance question can change it twice), and only on Summary.
+        if (a11y.isEnabled && currentTab == 0) {
+            handler.removeCallbacks(announceHero)
+            handler.postDelayed(announceHero, 600)
+        }
         heroAnimator = ValueAnimator.ofFloat(from.toFloat(), target.toFloat()).apply {
             duration = 450
             interpolator = DecelerateInterpolator()
@@ -1680,6 +1750,10 @@ class MainActivity : Activity() {
             })
             start()
         }
+    }
+
+    private val announceHero = Runnable {
+        heroShown?.let { hero.announceForAccessibility("Safe to spend now ${money.format(it)}") }
     }
 
     // "How we got $130.13": short version first, the full math one tap away.
@@ -1727,13 +1801,13 @@ class MainActivity : Activity() {
         }
         dialogHeading(detail, "This week's money")
         dialogRow(detail, "Paycheck, ${week.payday.format(dayFormat)}", money.format(week.pay))
-        dialogRow(detail, "Bills per week", "−" + money.format(week.billsShare),
+        dialogRow(detail, "Bills per week", minus(week.billsShare),
             note = "every bill spread evenly over the weeks")
         dialogRow(detail, "Left after bills", money.format(week.afterBills), total = true)
         if (week.daysTracked < 7) dialogRow(detail, "× ${week.daysTracked} of 7 days", money.format(week.weekMoney))
         dialogHeading(detail, "What the bank can spare")
         dialogRow(detail, if (week.bankIsEstimate) "Bank balance (estimated)" else "Bank balance today", money.format(week.bank))
-        dialogRow(detail, "Bill buffer", "−" + money.format(week.setAside), note = "kept for bills that come before enough paychecks")
+        dialogRow(detail, "Bill buffer", minus(week.setAside), note = "kept for bills that come before enough paychecks")
         dialogRow(detail, "Spare money", money.format(week.free), total = true)
         val tightest = week.tightest
         dialogParagraph(detail,
@@ -1786,6 +1860,9 @@ class MainActivity : Activity() {
             .create()
         present(dialog)
     }
+
+    // "−$12.00" for money taken off, but plain "$0.00" for nothing (no "−$0.00").
+    private fun minus(amount: Double) = if (amount > 0.004) "−" + money.format(amount) else money.format(0.0)
 
     private fun dayRange(from: LocalDate, nextPayday: LocalDate): String {
         val lastDay = nextPayday.minusDays(1)
@@ -2238,6 +2315,7 @@ class MainActivity : Activity() {
         }
         sheetDialog = dialog
         dialog.setContentView(R.layout.sheet_bill)
+        stackForLargeText(dialog.findViewById(R.id.sheet_root))
         val window = dialog.window!!
         window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         window.setTitle(if (existing == null) "New bill" else "Edit bill")
@@ -2275,10 +2353,20 @@ class MainActivity : Activity() {
             val lightNav = WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
             window.insetsController?.setSystemBarsAppearance(if (isNight()) 0 else lightNav, lightNav)
             val basePadding = sheet.paddingBottom
+            val baseLeft = sheet.paddingLeft
+            val baseRight = sheet.paddingRight
             root.setOnApplyWindowInsetsListener { _, insets ->
-                val bars = insets.getInsets(WindowInsets.Type.systemBars())
+                val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
                 val keyboard = insets.getInsets(WindowInsets.Type.ime())
-                sheet.setPadding(sheet.paddingLeft, sheet.paddingTop, sheet.paddingRight, basePadding + maxOf(bars.bottom, keyboard.bottom))
+                // Clear of a side navigation bar or the camera cutout too (landscape), on top of the sheet's own padding.
+                sheet.setPadding(baseLeft + bars.left, sheet.paddingTop, baseRight + bars.right,
+                    basePadding + maxOf(bars.bottom, keyboard.bottom))
+                // A tall sheet (large text with the keyboard up) stops below the status bar; its form scrolls instead.
+                val params = sheet.layoutParams as ViewGroup.MarginLayoutParams
+                if (params.topMargin != bars.top) {
+                    params.topMargin = bars.top
+                    sheet.layoutParams = params
+                }
                 insets
             }
         }
@@ -2602,6 +2690,7 @@ class MainActivity : Activity() {
     private fun showSnackBar(message: String, canUndo: Boolean) {
         undoText.text = message
         undoButton.visibility = if (canUndo) View.VISIBLE else View.GONE
+        undoButton.isEnabled = true
         positionSnackBar()
         handler.removeCallbacks(hideSnack)
         undoBar.animate().cancel()
@@ -2655,6 +2744,7 @@ class MainActivity : Activity() {
         val slop = ViewConfiguration.get(this).scaledTouchSlop
         var downX = 0f
         var downY = 0f
+        var startX = 0f // where the row was when the finger went down (it may still be sliding back)
         var swiping = false
         var moved = false
         var busy = false
@@ -2684,6 +2774,8 @@ class MainActivity : Activity() {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     rowHeld = true
+                    view.animate().cancel()
+                    startX = view.translationX
                     downX = event.rawX
                     downY = event.rawY
                     swiping = false
@@ -2703,7 +2795,7 @@ class MainActivity : Activity() {
                         }
                     }
                     if (swiping) {
-                        view.translationX = dx
+                        view.translationX = startX + dx
                         paidLayer.visibility = if (dx > 0) View.VISIBLE else View.INVISIBLE
                         deleteLayer.visibility = if (dx < 0) View.VISIBLE else View.INVISIBLE
                     }
@@ -2736,6 +2828,7 @@ class MainActivity : Activity() {
                         }
                         else -> {
                             releaseRow()
+                            if (view.translationX != 0f) settle() // grabbed mid-slide, then let go
                             if (!moved) view.performClick()
                         }
                     }

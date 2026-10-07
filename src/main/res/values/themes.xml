@@ -62,10 +62,11 @@
         <item name="android:paddingVertical">14dp</item>
     </style>
 
+    <!-- Tile label and caption wrap to as many lines as they need (large text needs three or more); the row
+         in activity_main keeps both tiles the same height. -->
     <style name="TileLabel">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:maxLines">2</item>
         <item name="android:textColor">@color/text_secondary</item>
         <item name="android:textSize">13sp</item>
     </style>
@@ -74,17 +75,18 @@
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginTop">2dp</item>
-        <item name="android:maxLines">2</item>
         <item name="android:textColor">@color/text_secondary</item>
         <item name="android:textSize">12sp</item>
     </style>
 
+    <!-- Shrinks to fit one line. The 10sp floor lets "-$12,345.67" fit a half-width tile at the largest font
+         size; at normal sizes amounts fit at the full 20sp. -->
     <style name="TileValue" parent="Money">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginTop">2dp</item>
         <item name="android:autoSizeMaxTextSize">20sp</item>
-        <item name="android:autoSizeMinTextSize">12sp</item>
+        <item name="android:autoSizeMinTextSize">10sp</item>
         <item name="android:autoSizeTextType">uniform</item>
         <item name="android:maxLines">1</item>
         <item name="android:textColor">@color/text</item>
@@ -138,20 +140,27 @@
         <item name="android:background">@color/divider</item>
     </style>
 
-    <!-- Tappable "icon  label ... value ›" row. -->
+    <!-- Tappable "icon  label ... value ›" row. The label and value sit in an inner row that MainActivity stacks
+         (value under label) with large text. baselineAligned="false" changes nothing visually (the row's
+         children are two icons and that inner row, none of which has a baseline); it saves measuring the
+         weighted inner row twice. -->
     <style name="GlanceRow">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:background">?android:attr/selectableItemBackground</item>
+        <item name="android:baselineAligned">false</item>
         <item name="android:gravity">center_vertical</item>
         <item name="android:minHeight">56dp</item>
         <item name="android:orientation">horizontal</item>
     </style>
 
-    <!-- The label keeps its full width; the value takes what's left and is cut off with "…" if needed. -->
+    <!-- The label keeps its full width (up to 150dp, then it wraps, with "…" after two lines); the value takes
+         what's left and is cut off with "…" if needed. Stacked with large text, both span the row (an exact
+         width overrides maxWidth). -->
     <style name="GlanceLabel">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
+        <item name="android:ellipsize">end</item>
         <item name="android:maxLines">2</item>
         <item name="android:maxWidth">150dp</item>
         <item name="android:textColor">@color/text</item>
@@ -259,11 +268,14 @@
         <item name="android:textSize">16sp</item>
     </style>
 
+    <!-- At least 48dp tall (the size at normal text); grows if a label wraps with large text instead of
+         cutting it off. -->
     <style name="GreenButton">
         <item name="android:layout_width">wrap_content</item>
-        <item name="android:layout_height">48dp</item>
+        <item name="android:layout_height">wrap_content</item>
         <item name="android:background">@drawable/button_green</item>
         <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:minHeight">48dp</item>
         <item name="android:minWidth">72dp</item>
         <item name="android:paddingHorizontal">20dp</item>
         <item name="android:stateListAnimator">@null</item>

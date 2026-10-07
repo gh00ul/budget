@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Three pages (only one visible at a time) above a bottom tab bar. -->
 <!-- TooManyViews: single-activity app by design; the three tabs live in this one layout and only one
-     page is visible at a time (the others are GONE), so the drawn view count stays well under the limit. -->
+     page is visible at a time (the others are GONE), so the drawn view count stays well under the limit.
+     TooDeepLayout: the label/value rows that stack with large text (tag stack_when_large_text) add one level, so
+     the deepest text is 11 levels down; this layout is inflated once per screen, so the cost is a one-off. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    tools:ignore="TooManyViews">
+    tools:ignore="TooManyViews,TooDeepLayout">
 
     <FrameLayout
         android:id="@+id/pages"
@@ -129,13 +131,32 @@
                             android:importantForAccessibility="no"
                             android:src="@drawable/ic_tab_paydays" />
 
-                        <TextView
-                            style="@style/GlanceLabel"
-                            android:text="Your weekly pay" />
+                        <!-- Label and value share their own row so that with large text (1.3× and up) MainActivity
+                             can put the value on its own line under the label (tag "stack_when_large_text"); side by
+                             side, a two-line label left the value so little room that amounts broke mid-number. At
+                             normal sizes this lays out exactly like label and value placed straight in the GlanceRow.
+                             The 4dp vertical padding changes nothing until the text is taller than 48dp (large text
+                             only: the value is at most two lines); then it keeps the text off the dividers. Same for
+                             every label + value row below. -->
+                        <LinearLayout
+                            android:id="@+id/setup_pay_text"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:baselineAligned="false"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal"
+                            android:paddingVertical="4dp"
+                            android:tag="stack_when_large_text">
 
-                        <TextView
-                            android:id="@+id/setup_pay_value"
-                            style="@style/GlanceValue" />
+                            <TextView
+                                style="@style/GlanceLabel"
+                                android:text="Your weekly pay" />
+
+                            <TextView
+                                android:id="@+id/setup_pay_value"
+                                style="@style/GlanceValue" />
+                        </LinearLayout>
 
                         <ImageView
                             style="@style/ChevronIcon"
@@ -156,13 +177,25 @@
                             android:importantForAccessibility="no"
                             android:src="@drawable/ic_tab_bills" />
 
-                        <TextView
-                            style="@style/GlanceLabel"
-                            android:text="Your regular bills" />
+                        <LinearLayout
+                            android:id="@+id/setup_bills_text"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:baselineAligned="false"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal"
+                            android:paddingVertical="4dp"
+                            android:tag="stack_when_large_text">
 
-                        <TextView
-                            android:id="@+id/setup_bills_value"
-                            style="@style/GlanceValue" />
+                            <TextView
+                                style="@style/GlanceLabel"
+                                android:text="Your regular bills" />
+
+                            <TextView
+                                android:id="@+id/setup_bills_value"
+                                style="@style/GlanceValue" />
+                        </LinearLayout>
 
                         <ImageView
                             style="@style/ChevronIcon"
@@ -183,13 +216,25 @@
                             android:importantForAccessibility="no"
                             android:src="@drawable/ic_wallet" />
 
-                        <TextView
-                            style="@style/GlanceLabel"
-                            android:text="Your bank balance" />
+                        <LinearLayout
+                            android:id="@+id/setup_balance_text"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:baselineAligned="false"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal"
+                            android:paddingVertical="4dp"
+                            android:tag="stack_when_large_text">
 
-                        <TextView
-                            android:id="@+id/setup_balance_value"
-                            style="@style/GlanceValue" />
+                            <TextView
+                                style="@style/GlanceLabel"
+                                android:text="Your bank balance" />
+
+                            <TextView
+                                android:id="@+id/setup_balance_value"
+                                style="@style/GlanceValue" />
+                        </LinearLayout>
 
                         <ImageView
                             style="@style/ChevronIcon"
@@ -318,34 +363,55 @@
                                 android:importantForAccessibility="no"
                                 android:src="@drawable/ic_wallet" />
 
+                            <!-- "Bank balance" + status, and the amount: with large text the amount goes on its own
+                                 line under the status (tag "stack_when_large_text"), so neither "balance" nor the
+                                 amount breaks mid-word. Laid out exactly as before at normal sizes. No vertical
+                                 padding here: a long status already wraps to 3+ lines at normal size, and padding
+                                 would make that row taller.
+                                 NestedWeights: the text column fills what the amount leaves inside this wrapper,
+                                 which fills the row between the two icons. With baselineAligned="false" here and on
+                                 the row (GlanceRow), a 0dp weighted child of an exact-width parent is measured once,
+                                 so the nesting costs no extra measure pass. -->
                             <LinearLayout
+                                android:id="@+id/balance_text"
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:orientation="vertical">
+                                android:baselineAligned="false"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal"
+                                android:tag="stack_when_large_text"
+                                tools:ignore="NestedWeights">
+
+                                <LinearLayout
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:orientation="vertical">
+
+                                    <TextView
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:text="Bank balance"
+                                        android:textColor="@color/text"
+                                        android:textSize="16sp" />
+
+                                    <TextView
+                                        android:id="@+id/balance_updated"
+                                        android:layout_width="wrap_content"
+                                        android:layout_height="wrap_content"
+                                        android:textSize="13sp" />
+                                </LinearLayout>
 
                                 <TextView
+                                    android:id="@+id/balance_value"
+                                    style="@style/Money"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="Bank balance"
+                                    android:layout_marginStart="8dp"
                                     android:textColor="@color/text"
                                     android:textSize="16sp" />
-
-                                <TextView
-                                    android:id="@+id/balance_updated"
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:textSize="13sp" />
                             </LinearLayout>
-
-                            <TextView
-                                android:id="@+id/balance_value"
-                                style="@style/Money"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginStart="8dp"
-                                android:textColor="@color/text"
-                                android:textSize="16sp" />
 
                             <ImageView
                                 android:id="@+id/balance_edit_icon"
@@ -393,13 +459,26 @@
                                 android:importantForAccessibility="no"
                                 android:src="@drawable/ic_tab_paydays" />
 
-                            <TextView
-                                style="@style/GlanceLabel"
-                                android:text="Next payday" />
+                            <!-- Label + value stack with large text, like the setup rows. -->
+                            <LinearLayout
+                                android:id="@+id/glance_payday_text"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:baselineAligned="false"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal"
+                                android:paddingVertical="4dp"
+                                android:tag="stack_when_large_text">
 
-                            <TextView
-                                android:id="@+id/glance_payday"
-                                style="@style/GlanceValue" />
+                                <TextView
+                                    style="@style/GlanceLabel"
+                                    android:text="Next payday" />
+
+                                <TextView
+                                    android:id="@+id/glance_payday"
+                                    style="@style/GlanceValue" />
+                            </LinearLayout>
 
                             <ImageView
                                 style="@style/ChevronIcon"
@@ -419,13 +498,25 @@
                                 android:importantForAccessibility="no"
                                 android:src="@drawable/ic_bell" />
 
-                            <TextView
-                                style="@style/GlanceLabel"
-                                android:text="Next bill" />
+                            <LinearLayout
+                                android:id="@+id/glance_bill_text"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:baselineAligned="false"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal"
+                                android:paddingVertical="4dp"
+                                android:tag="stack_when_large_text">
 
-                            <TextView
-                                android:id="@+id/glance_bill"
-                                style="@style/GlanceValue" />
+                                <TextView
+                                    style="@style/GlanceLabel"
+                                    android:text="Next bill" />
+
+                                <TextView
+                                    android:id="@+id/glance_bill"
+                                    style="@style/GlanceValue" />
+                            </LinearLayout>
 
                             <ImageView
                                 style="@style/ChevronIcon"
@@ -445,13 +536,25 @@
                                 android:importantForAccessibility="no"
                                 android:src="@drawable/ic_tab_bills" />
 
-                            <TextView
-                                style="@style/GlanceLabel"
-                                android:text="Due before payday" />
+                            <LinearLayout
+                                android:id="@+id/glance_due_text"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:baselineAligned="false"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal"
+                                android:paddingVertical="4dp"
+                                android:tag="stack_when_large_text">
 
-                            <TextView
-                                android:id="@+id/glance_due"
-                                style="@style/GlanceValue" />
+                                <TextView
+                                    style="@style/GlanceLabel"
+                                    android:text="Due before payday" />
+
+                                <TextView
+                                    android:id="@+id/glance_due"
+                                    style="@style/GlanceValue" />
+                            </LinearLayout>
 
                             <ImageView
                                 style="@style/ChevronIcon"
@@ -459,14 +562,19 @@
                         </LinearLayout>
                     </LinearLayout>
 
-                    <!-- End of month and Extra savings -->
+                    <!-- End of month and Extra savings. Both tiles fill the row's height (match_parent in a
+                         wrap_content row: LinearLayout measures them, then gives both the taller height), so they
+                         stay level when a label or caption wraps to more lines. baselineAligned="false" changes
+                         nothing visually: the tiles are vertical LinearLayouts, which report no baseline. -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:baselineAligned="false"
                         android:orientation="horizontal">
 
                         <LinearLayout
                             style="@style/Tile"
+                            android:layout_height="match_parent"
                             android:layout_marginEnd="6dp"
                             android:screenReaderFocusable="true">
 
@@ -485,6 +593,7 @@
 
                         <LinearLayout
                             style="@style/Tile"
+                            android:layout_height="match_parent"
                             android:layout_marginStart="6dp"
                             android:screenReaderFocusable="true">
 
@@ -544,13 +653,26 @@
                             android:importantForAccessibility="no"
                             android:src="@drawable/ic_tab_paydays" />
 
-                        <TextView
-                            style="@style/GlanceLabel"
-                            android:text="Your pay" />
+                        <!-- Label + value stack with large text, like the Summary rows. -->
+                        <LinearLayout
+                            android:id="@+id/pay_text"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:baselineAligned="false"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal"
+                            android:paddingVertical="4dp"
+                            android:tag="stack_when_large_text">
 
-                        <TextView
-                            android:id="@+id/pay_value"
-                            style="@style/GlanceValue" />
+                            <TextView
+                                style="@style/GlanceLabel"
+                                android:text="Your pay" />
+
+                            <TextView
+                                android:id="@+id/pay_value"
+                                style="@style/GlanceValue" />
+                        </LinearLayout>
 
                         <ImageView
                             style="@style/ChevronIcon"
@@ -741,7 +863,9 @@
             </LinearLayout>
         </ScrollView>
 
-        <!-- Message bar with Undo (left of the + button on the Bills tab) -->
+        <!-- Message bar with Undo (left of the + button on the Bills tab). The message has no line limit: the
+             end of it (often the new balance) used to be cut off silently with large text. The bar grows upward
+             from the bottom of the pages, beside the + button, never under the status bar or tab bar. -->
         <LinearLayout
             android:id="@+id/undo_bar"
             android:layout_width="match_parent"
@@ -765,7 +889,6 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:accessibilityLiveRegion="polite"
-                android:maxLines="2"
                 android:paddingVertical="8dp"
                 android:textColor="@android:color/white"
                 android:textSize="15sp" />

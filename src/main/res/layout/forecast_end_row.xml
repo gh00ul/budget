@@ -1,12 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- "End of October": the bank balance on the last day of the month, placed after that month's last payday. -->
+<!-- With large text the balance goes on its own line under the text, still at the end, like the payday rows
+     above it. baselineAligned="false" changes nothing visually: neither child reports a baseline (a vertical
+     LinearLayout and a FrameLayout), so nothing was ever aligned. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/end_row"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:baselineAligned="false"
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:paddingVertical="14dp"
-    android:screenReaderFocusable="true">
+    android:screenReaderFocusable="true"
+    android:tag="stack_when_large_text">
 
     <LinearLayout
         android:layout_width="0dp"
@@ -38,11 +44,18 @@
             android:visibility="gone" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/end_balance"
-        style="@style/Money"
+    <!-- The frame holds the gap (and spans the row when stacked) so the balance stays at the end -->
+    <FrameLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
-        android:textSize="18sp" />
+        android:layout_marginStart="8dp">
+
+        <TextView
+            android:id="@+id/end_balance"
+            style="@style/Money"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end"
+            android:textSize="18sp" />
+    </FrameLayout>
 </LinearLayout>
