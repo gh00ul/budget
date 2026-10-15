@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The home-screen widget (BudgetWidget.kt): 4×2 cells by default. minWidth/minHeight are the 4×2 sizes from
+     Android's widget guidelines (70dp per cell, minus 30) for launchers before Android 12; it can be made smaller
+     or taller. updatePeriodMillis (6 hours) is a fallback: it's also redrawn whenever the app saves and just after
+     midnight. targetCell*, description and previewLayout are Android 12+ (older launchers show the app icon in the
+     picker instead of the preview), hence targetApi. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:description="@string/widget_description"
+    android:initialLayout="@layout/widget_budget"
+    android:minWidth="250dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="180dp"
+    android:minResizeHeight="90dp"
+    android:previewLayout="@layout/widget_preview"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="21600000"
+    android:widgetCategory="home_screen"
+    tools:targetApi="31" />

@@ -611,6 +611,114 @@
                                 android:text="not needed for bills" />
                         </LinearLayout>
                     </LinearLayout>
+
+                    <!-- This month: its pay and bills, how much of the bills is paid, and Export (a spreadsheet file
+                         or text). Filled in by showMonth(). -->
+                    <LinearLayout
+                        android:id="@+id/month_card"
+                        style="@style/Card"
+                        android:layout_marginTop="12dp"
+                        android:paddingTop="4dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <TextView
+                                android:id="@+id/month_title"
+                                style="@style/SectionTitle"
+                                android:layout_width="0dp"
+                                android:layout_weight="1"
+                                android:accessibilityHeading="true" />
+
+                            <!-- The negative margin lines the icon's ripple up with the card's padding. -->
+                            <TextView
+                                android:id="@+id/month_export"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginEnd="-10dp"
+                                android:background="?android:attr/selectableItemBackground"
+                                android:drawableStart="@drawable/ic_share"
+                                android:drawablePadding="6dp"
+                                android:drawableTint="@color/chip_text"
+                                android:fontFamily="sans-serif-medium"
+                                android:gravity="center_vertical"
+                                android:minHeight="48dp"
+                                android:paddingHorizontal="10dp"
+                                android:text="Export"
+                                android:textColor="@color/chip_text"
+                                android:textSize="15sp" />
+                        </LinearLayout>
+
+                        <!-- Pay, bills, and what pay leaves after bills. Each value shrinks to stay on one line. -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:baselineAligned="false"
+                            android:orientation="horizontal">
+
+                            <LinearLayout
+                                style="@style/MonthStat"
+                                android:screenReaderFocusable="true">
+
+                                <TextView
+                                    style="@style/MonthStatLabel"
+                                    android:text="Pay" />
+
+                                <TextView
+                                    android:id="@+id/month_pay"
+                                    style="@style/MonthStatValue" />
+                            </LinearLayout>
+
+                            <LinearLayout
+                                style="@style/MonthStat"
+                                android:screenReaderFocusable="true">
+
+                                <TextView
+                                    style="@style/MonthStatLabel"
+                                    android:text="Bills" />
+
+                                <TextView
+                                    android:id="@+id/month_bills"
+                                    style="@style/MonthStatValue" />
+                            </LinearLayout>
+
+                            <LinearLayout
+                                style="@style/MonthStat"
+                                android:screenReaderFocusable="true">
+
+                                <TextView
+                                    style="@style/MonthStatLabel"
+                                    android:text="After bills" />
+
+                                <TextView
+                                    android:id="@+id/month_left"
+                                    style="@style/MonthStatValue" />
+                            </LinearLayout>
+                        </LinearLayout>
+
+                        <ProgressBar
+                            android:id="@+id/month_progress"
+                            style="?android:attr/progressBarStyleHorizontal"
+                            android:layout_width="match_parent"
+                            android:layout_height="6dp"
+                            android:layout_marginTop="14dp"
+                            android:importantForAccessibility="no"
+                            android:indeterminate="false"
+                            android:max="1000"
+                            android:progressDrawable="@drawable/month_progress" />
+
+                        <TextView
+                            android:id="@+id/month_status"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="13sp" />
+                    </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
         </ScrollView>

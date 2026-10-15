@@ -34,5 +34,21 @@
         <receiver
             android:name=".InstallReceiver"
             android:exported="false" />
+
+        <!-- The home-screen widget. Android delivers its updates to it without exporting it. The clock changes are
+             two of the few broadcasts still sent to apps that aren't running; they move the widget's dates on. -->
+        <receiver
+            android:name=".BudgetWidget"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/budget_widget_info" />
+        </receiver>
     </application>
 </manifest>

@@ -93,6 +93,29 @@
         <item name="android:textSize">20sp</item>
     </style>
 
+    <!-- One of the three numbers on the Summary's month card (Pay, Bills, After bills). The layout makes each one
+         screenReaderFocusable (an API 28 attribute, which a style can't hold without lint's NewApi error). -->
+    <style name="MonthStat">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:orientation">vertical</item>
+    </style>
+
+    <style name="MonthStatLabel">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:textSize">13sp</item>
+    </style>
+
+    <!-- Whole dollars, shrinking (down to 10sp, like the tiles) rather than wrapping or being cut off. -->
+    <style name="MonthStatValue" parent="TileValue">
+        <item name="android:layout_marginEnd">8dp</item>
+        <item name="android:autoSizeMaxTextSize">18sp</item>
+        <item name="android:textSize">18sp</item>
+    </style>
+
     <!-- Numbers: medium weight with equal-width digits so columns line up. -->
     <style name="Money">
         <item name="android:fontFamily">sans-serif-medium</item>

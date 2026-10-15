@@ -9,6 +9,7 @@ import java.time.YearMonth
 import java.time.format.DateTimeParseException
 import java.time.temporal.ChronoUnit
 import kotlin.math.abs
+import kotlin.math.roundToLong
 
 // The budget's plain logic: bills and when they're due, matching bank payments to bills, money in amount fields,
 // and how bills are saved. No Android code here, so it can be unit-tested on its own (src/test).
@@ -171,6 +172,10 @@ internal fun matchBills(
     }
     return result
 }
+
+// Rounds to whole cents (and turns -0.0 into 0.0) so tiny floating-point leftovers never show as
+// "-$0.00" or flip a number red.
+internal fun cents(amount: Double): Double = (amount * 100).roundToLong() / 100.0 + 0.0
 
 // A whole number of dollars as "1200", cents as "80.5" (no trailing zeros).
 internal fun plain(amount: Double) = amount.toBigDecimal().stripTrailingZeros().toPlainString()

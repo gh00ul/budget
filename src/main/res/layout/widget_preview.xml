@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- How the widget looks in the home screen's widget picker (Android 12+): widget_budget.xml with example numbers.
+     Keep the two alike. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/hero_green"
+    android:gravity="center_vertical"
+    android:orientation="vertical"
+    android:paddingStart="16dp"
+    android:paddingTop="6dp"
+    android:paddingEnd="6dp"
+    android:paddingBottom="12dp">
+
+    <!-- UseCompoundDrawables: the icon is its own button (it has its own tap), not part of the label. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        tools:ignore="UseCompoundDrawables">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="Safe to spend this week"
+            android:textColor="#D9FFFFFF"
+            android:textSize="13sp" />
+
+        <!-- Update the balance (or the bank's status and Sync now, when linked) -->
+        <ImageView
+            android:id="@+id/widget_action"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:contentDescription="Update bank balance"
+            android:padding="11dp"
+            android:src="@drawable/ic_edit"
+            android:tint="#E6FFFFFF" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/widget_amount"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="-8dp"
+        android:layout_marginEnd="10dp"
+        android:fontFeatureSettings="tnum"
+        android:letterSpacing="-0.02"
+        android:maxLines="1"
+        android:text="$130.13"
+        android:textColor="@android:color/white"
+        android:textSize="32sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/widget_note"
+        android:text="Until payday Fri · $26.03 a day"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="10dp"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textColor="#E6FFFFFF"
+        android:textSize="13sp" />
+
+    <!-- How much of this week's money is spent (only when the widget is tall enough) -->
+    <ProgressBar
+        android:id="@+id/widget_progress"
+        style="@android:style/Widget.Material.ProgressBar.Horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="4dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="10dp"
+        android:indeterminate="false"
+        android:max="1000"
+        android:progress="420"
+        android:progressDrawable="@drawable/hero_progress" />
+
+    <LinearLayout
+        android:id="@+id/widget_details"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:layout_marginEnd="10dp"
+        android:baselineAligned="false"
+        android:orientation="horizontal">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="12dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Bank"
+                android:textColor="#CCFFFFFF"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/widget_bank"
+                android:text="$1,842.37"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:fontFamily="sans-serif-medium"
+                android:fontFeatureSettings="tnum"
+                android:maxLines="1"
+                android:textColor="@android:color/white"
+                android:textSize="15sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Next bill"
+                android:textColor="#CCFFFFFF"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/widget_bill"
+                android:text="Phone $65 · Sat"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:fontFamily="sans-serif-medium"
+                android:maxLines="1"
+                android:textColor="@android:color/white"
+                android:textSize="15sp" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

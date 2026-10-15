@@ -5,6 +5,11 @@ A simple Android budget app for people paid weekly. Enter your bank balance, wee
 - **Safe to spend:** this week's spending money (pay minus each bill's weekly share, minus what you've spent since payday), lowered if needed so every upcoming bill still gets paid on time. Tap it for the full breakdown.
 - **Paydays:** what's left after each payday's bills, and your balance at the end of the month.
 - **Bills:** what's due and when.
+- **This month** (on Summary): the month's pay and bills, and how much of the bills is paid.
+
+**Export** (on the month card, or in Settings) saves this month's budget as a spreadsheet file (CSV, for Google Sheets or Excel) wherever you pick, or shares it as text. It lists every paycheck and bill in the month, your bank purchases if your bank is connected, and where you stand today.
+
+**Home-screen widget** (4×2): Safe to spend this week, your bank balance and your next bill. Add it from Settings → Home-screen widget, or from your home screen's widget list. It updates whenever you change something in the app and every day at midnight; its button updates your balance. It doesn't sync your bank by itself: opening the app does.
 
 Your numbers are stored on your phone (and in Android's own backup if you have it turned on), never sent anywhere else.
 
