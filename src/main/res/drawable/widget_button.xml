@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The widget's round peach button (update balance / bank), like the music widget's play button. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <gradient
+        android:angle="270"
+        android:endColor="@color/widget_peach_bottom"
+        android:startColor="@color/widget_peach_top" />
+    <stroke
+        android:width="1dp"
+        android:color="@color/widget_peach_rim" />
+</shape>

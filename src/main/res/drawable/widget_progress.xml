@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "Spent so far this week" in the widget: a thin terracotta line with an orange knob at its end, like a music
+     player's progress. The knob rides on the progress: the scale layer is cut to the progress, and the knob sits at
+     its right end. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@android:id/background"
+        android:gravity="center_vertical|fill_horizontal"
+        android:height="3dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/widget_track" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+    <item android:id="@android:id/progress">
+        <scale
+            android:scaleGravity="left"
+            android:scaleWidth="100%">
+            <layer-list>
+                <item
+                    android:gravity="center_vertical|fill_horizontal"
+                    android:height="3dp">
+                    <shape android:shape="rectangle">
+                        <solid android:color="@color/widget_line" />
+                        <corners android:radius="2dp" />
+                    </shape>
+                </item>
+                <item
+                    android:width="10dp"
+                    android:height="10dp"
+                    android:gravity="right|center_vertical">
+                    <shape android:shape="oval">
+                        <gradient
+                            android:angle="270"
+                            android:endColor="@color/widget_peach_bottom"
+                            android:startColor="@color/widget_knob" />
+                    </shape>
+                </item>
+            </layer-list>
+        </scale>
+    </item>
+</layer-list>

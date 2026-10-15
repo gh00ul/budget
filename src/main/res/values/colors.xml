@@ -20,4 +20,20 @@
     <color name="delete_bg">#FDECEA</color>
     <color name="snackbar">#2F3331</color>
     <color name="warn_bg">#FFF3E0</color>
+
+    <!-- Home-screen widget: taken from the owner's music widget so the two match. Not in values-night on purpose:
+         the widget sits on the wallpaper and looks the same in dark mode. Text is at least 4.5:1 on the card. -->
+    <color name="widget_card_top">#D7C9AF</color>
+    <color name="widget_card_bottom">#E5C39C</color>
+    <color name="widget_rim">#99F4E6D2</color>
+    <color name="widget_text">#2D2F21</color>
+    <color name="widget_text_secondary">#5B513B</color>
+    <color name="widget_short">#8E3420</color>
+    <color name="widget_line">#B07B5C</color>
+    <color name="widget_track">#B8AA90</color>
+    <color name="widget_knob">#F5B47C</color>
+    <color name="widget_peach_top">#FCD19C</color>
+    <color name="widget_peach_bottom">#F2A96B</color>
+    <color name="widget_peach_rim">#FBDDB8</color>
+    <color name="widget_icon">#2F3020</color>
 </resources>

@@ -1,92 +1,130 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The 4×2 home-screen widget (BudgetWidget.kt), drawn like the Summary's Safe to spend box. Everything is filled in
-     from code; until then it shows a dash. The root's id lets Android 12+ round it to match the home screen.
-     widget_preview.xml is the same layout with example numbers, for the widget picker. -->
+<!-- The 4×2 home-screen widget (BudgetWidget.kt), styled to sit with the owner's clock and music widgets: a sand card,
+     small-capital labels like the clock's, a progress line with a knob and a round peach button like the music
+     player's. Everything is filled in from code (the labels too, in small capitals); until then it shows a dash. The
+     root's id lets Android 12+ round it to match the home screen. widget_preview.xml is the same layout with example
+     numbers, for the widget picker: keep the two alike. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@android:id/background"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/hero_green"
+    android:background="@drawable/widget_card"
     android:gravity="center_vertical"
     android:orientation="vertical"
-    android:paddingStart="16dp"
-    android:paddingTop="6dp"
-    android:paddingEnd="6dp"
-    android:paddingBottom="12dp">
+    android:paddingHorizontal="22dp"
+    android:paddingVertical="18dp">
 
-    <!-- UseCompoundDrawables: the icon is its own button (it has its own tap), not part of the label. -->
+    <!-- Safe to spend, and the button. UseCompoundDrawables: the button has its own tap, so it can't be a drawable
+         on the text. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:baselineAligned="false"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         tools:ignore="UseCompoundDrawables">
 
-        <TextView
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:text="Safe to spend this week"
-            android:textColor="#D9FFFFFF"
-            android:textSize="13sp" />
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widget_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:fontFeatureSettings="smcp"
+                android:letterSpacing="0.04"
+                android:maxLines="1"
+                android:text="Safe to spend this week"
+                android:textColor="@color/widget_text_secondary"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/widget_amount"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-medium"
+                android:fontFeatureSettings="tnum"
+                android:letterSpacing="-0.01"
+                android:maxLines="1"
+                android:text="–"
+                android:textColor="@color/widget_text"
+                android:textSize="38sp" />
+
+            <TextView
+                android:id="@+id/widget_note"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/widget_text_secondary"
+                android:textSize="14sp" />
+        </LinearLayout>
 
         <!-- Update the balance (or the bank's status and Sync now, when linked) -->
         <ImageView
             android:id="@+id/widget_action"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginStart="12dp"
+            android:background="@drawable/widget_button"
             android:contentDescription="Update bank balance"
-            android:padding="11dp"
+            android:padding="17dp"
             android:src="@drawable/ic_edit"
-            android:tint="#E6FFFFFF" />
+            android:tint="@color/widget_icon" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/widget_amount"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="-8dp"
-        android:layout_marginEnd="10dp"
-        android:fontFeatureSettings="tnum"
-        android:letterSpacing="-0.02"
-        android:maxLines="1"
-        android:text="–"
-        android:textColor="@android:color/white"
-        android:textSize="32sp"
-        android:textStyle="bold" />
-
-    <TextView
-        android:id="@+id/widget_note"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginEnd="10dp"
-        android:ellipsize="end"
-        android:maxLines="1"
-        android:textColor="#E6FFFFFF"
-        android:textSize="13sp" />
-
-    <!-- How much of this week's money is spent (only when the widget is tall enough) -->
+    <!-- How much of this week's money is spent (only when the widget is tall enough). Tall enough for the knob;
+         the line itself is 3dp. -->
     <ProgressBar
         android:id="@+id/widget_progress"
         style="@android:style/Widget.Material.ProgressBar.Horizontal"
         android:layout_width="match_parent"
-        android:layout_height="4dp"
-        android:layout_marginTop="8dp"
-        android:layout_marginEnd="10dp"
+        android:layout_height="10dp"
+        android:layout_marginTop="16dp"
         android:indeterminate="false"
         android:max="1000"
-        android:progressDrawable="@drawable/hero_progress"
+        android:progressDrawable="@drawable/widget_progress"
         android:visibility="gone" />
+
+    <!-- Under the line, like a player's elapsed and total time: spent so far, and this week's money. -->
+    <LinearLayout
+        android:id="@+id/widget_spent_row"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/widget_spent"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:fontFeatureSettings="tnum"
+            android:maxLines="1"
+            android:textColor="@color/widget_text_secondary"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/widget_week"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFeatureSettings="tnum"
+            android:maxLines="1"
+            android:textColor="@color/widget_text_secondary"
+            android:textSize="13sp" />
+    </LinearLayout>
 
     <LinearLayout
         android:id="@+id/widget_details"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:layout_marginEnd="10dp"
+        android:layout_marginTop="14dp"
         android:baselineAligned="false"
         android:orientation="horizontal"
         android:visibility="gone">
@@ -99,11 +137,14 @@
             android:orientation="vertical">
 
             <TextView
+                android:id="@+id/widget_bank_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:fontFeatureSettings="smcp"
+                android:letterSpacing="0.04"
                 android:text="Bank"
-                android:textColor="#CCFFFFFF"
-                android:textSize="12sp" />
+                android:textColor="@color/widget_text_secondary"
+                android:textSize="13sp" />
 
             <TextView
                 android:id="@+id/widget_bank"
@@ -113,8 +154,8 @@
                 android:fontFamily="sans-serif-medium"
                 android:fontFeatureSettings="tnum"
                 android:maxLines="1"
-                android:textColor="@android:color/white"
-                android:textSize="15sp" />
+                android:textColor="@color/widget_text"
+                android:textSize="16sp" />
         </LinearLayout>
 
         <LinearLayout
@@ -124,11 +165,14 @@
             android:orientation="vertical">
 
             <TextView
+                android:id="@+id/widget_bill_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:fontFeatureSettings="smcp"
+                android:letterSpacing="0.04"
                 android:text="Next bill"
-                android:textColor="#CCFFFFFF"
-                android:textSize="12sp" />
+                android:textColor="@color/widget_text_secondary"
+                android:textSize="13sp" />
 
             <TextView
                 android:id="@+id/widget_bill"
@@ -137,8 +181,8 @@
                 android:ellipsize="end"
                 android:fontFamily="sans-serif-medium"
                 android:maxLines="1"
-                android:textColor="@android:color/white"
-                android:textSize="15sp" />
+                android:textColor="@color/widget_text"
+                android:textSize="16sp" />
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

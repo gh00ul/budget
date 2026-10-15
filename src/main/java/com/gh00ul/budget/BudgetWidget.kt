@@ -8,6 +8,9 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.RelativeSizeSpan
 import android.util.Log
 import android.util.TypedValue
 import android.view.View
@@ -85,21 +88,35 @@ class BudgetWidget : AppWidgetProvider() {
         private fun views(context: Context, shown: Shown, options: Bundle?): RemoteViews {
             val views = RemoteViews(context.packageName, R.layout.widget_budget)
             // The size on the home screen, in dp (portrait: the narrowest width and the tallest height). 0 = unknown.
+            // Everything needs about 205dp of height at normal text size (less with smaller text); smaller, the
+            // progress line, then the note go, then the bank and next-bill row instead (the note comes back), so
+            // what's shown is never cut off.
             val width = options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH) ?: 0
             val height = options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT) ?: 0
-            val roomy = height == 0 || height >= 150
-            val compact = height in 1..119
+            val fontScale = context.resources.configuration.fontScale
+            fun fits(dp: Int) = height == 0 || height >= dp * fontScale
 
-            views.setInt(android.R.id.background, "setBackgroundResource",
-                if (shown.short) R.drawable.hero_red else R.drawable.hero_green)
+            views.setTextViewText(R.id.widget_label, smallCaps("Safe to spend this week"))
+            views.setTextViewText(R.id.widget_bank_label, smallCaps("Bank"))
+            views.setTextViewText(R.id.widget_bill_label, smallCaps("Next bill"))
             views.setTextViewText(R.id.widget_amount, shown.amount)
-            views.setTextViewTextSize(R.id.widget_amount, TypedValue.COMPLEX_UNIT_SP, if (width in 1..229) 26f else 32f)
+            views.setTextViewTextSize(R.id.widget_amount, TypedValue.COMPLEX_UNIT_SP, if (width in 1..229) 30f else 38f)
+            // Bills not covered: the amount and why in a brick red, on the same card.
+            val color = context.getColor(if (shown.short) R.color.widget_short else R.color.widget_text)
+            views.setTextColor(R.id.widget_amount, color)
+            views.setTextColor(R.id.widget_note,
+                if (shown.short) color else context.getColor(R.color.widget_text_secondary))
             views.setTextViewText(R.id.widget_note, shown.note)
-            views.setViewVisibility(R.id.widget_note, if (compact && shown.details) View.GONE else View.VISIBLE)
             val progress = shown.progress
-            views.setViewVisibility(R.id.widget_progress, if (progress != null && roomy) View.VISIBLE else View.GONE)
+            val details = shown.details && fits(145)
+            val line = if (progress != null && fits(205)) View.VISIBLE else View.GONE
+            views.setViewVisibility(R.id.widget_progress, line)
+            views.setViewVisibility(R.id.widget_spent_row, line)
             if (progress != null) views.setProgressBar(R.id.widget_progress, 1000, progress, false)
-            views.setViewVisibility(R.id.widget_details, if (shown.details) View.VISIBLE else View.GONE)
+            views.setTextViewText(R.id.widget_spent, shown.spent)
+            views.setTextViewText(R.id.widget_week, shown.weekMoney)
+            views.setViewVisibility(R.id.widget_note, if (!details || fits(161)) View.VISIBLE else View.GONE)
+            views.setViewVisibility(R.id.widget_details, if (details) View.VISIBLE else View.GONE)
             views.setTextViewText(R.id.widget_bank, shown.bank)
             views.setTextViewText(R.id.widget_bill, shown.bill)
             views.setContentDescription(android.R.id.background, shown.description)
@@ -115,6 +132,20 @@ class BudgetWidget : AppWidgetProvider() {
             views.setImageViewResource(R.id.widget_action, if (shown.linked) R.drawable.ic_sync else R.drawable.ic_edit)
             views.setContentDescription(R.id.widget_action, if (shown.linked) "Bank balance and sync" else "Update bank balance")
             return views
+        }
+
+        // Small capitals, like the home screen clock's "Sunrise 6:32 AM": capitals stay full size and lowercase
+        // letters become smaller capitals. Done by hand because the phone's font may not have small capitals.
+        private fun smallCaps(text: String): CharSequence {
+            val caps = SpannableString(text.uppercase())
+            var i = 0
+            while (i < text.length) {
+                if (!text[i].isLowerCase()) { i++; continue }
+                val start = i
+                while (i < text.length && text[i].isLowerCase()) i++
+                caps.setSpan(RelativeSizeSpan(0.8f), start, i, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+            return caps
         }
 
         // "Due in 3 days" moves on at midnight, and so does the pay week on payday. The alarm doesn't wake the phone:
@@ -135,9 +166,11 @@ class BudgetWidget : AppWidgetProvider() {
     // What the widget says.
     private class Shown(
         val amount: CharSequence,
-        val short: Boolean, // red: bills aren't covered
+        val short: Boolean, // bills aren't covered: the amount and note turn brick red
         val note: String,
         val progress: Int?, // how much of this week's money is spent, per mille; null = not known
+        val spent: String, // under the progress line: "Spent $96" ... "of $226"
+        val weekMoney: String,
         val details: Boolean, // the bank / next bill row
         val bank: String,
         val bill: String,
@@ -168,6 +201,7 @@ class BudgetWidget : AppWidgetProvider() {
                 }
                 val spent = week.spent
                 val progress = if (spent != null && week.weekMoney > 0) (spent / week.weekMoney * 1000).toInt().coerceIn(0, 1000) else null
+                val spentText = spent?.let { "Spent ${wholeOrCents(money, it)}" }.orEmpty()
                 val bank = (if (week.bankIsEstimate) "≈ " else "") + money.format(week.bank)
                 val next = budget.bills.minByOrNull { it.nextDue(today) }
                 val bill = next?.let {
@@ -182,7 +216,8 @@ class BudgetWidget : AppWidgetProvider() {
                     "${it.name} ${wholeOrCents(money, it.amount)} · $whenDue"
                 } ?: "None"
                 return Shown(
-                    amount = money.format(shown), short = week.safe < 0, note = note, progress = progress, details = true,
+                    amount = money.format(shown), short = week.safe < 0, note = note, progress = progress,
+                    spent = spentText, weekMoney = "of ${wholeOrCents(money, week.weekMoney)}", details = true,
                     bank = bank, bill = bill, linked = budget.bank.isLinked,
                     description = "Budget. Safe to spend this week ${money.format(shown)}. $note. Bank $bank. Next bill $bill.",
                 )
@@ -193,8 +228,8 @@ class BudgetWidget : AppWidgetProvider() {
             fun problem() = message("Open Budget to see your numbers")
 
             private fun message(note: String) = Shown(
-                amount = "–", short = false, note = note, progress = null, details = false, bank = "", bill = "",
-                linked = false, description = "Budget. $note.",
+                amount = "–", short = false, note = note, progress = null, spent = "", weekMoney = "", details = false,
+                bank = "", bill = "", linked = false, description = "Budget. $note.",
             )
 
             // "$65" for whole dollars, "$15.49" otherwise.
