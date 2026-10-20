@@ -1,18 +1,45 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- "Spent so far this week" bar inside the green Safe to spend box. -->
+<!-- "Spent so far this week" on the Safe to spend card: a thin terracotta line with a peach knob at its end, like the
+     widget's (and a music player's) progress. The knob rides on the progress: the scale layer is cut to the progress,
+     and the knob sits at its right end. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:id="@android:id/background">
+    <item
+        android:id="@android:id/background"
+        android:gravity="center_vertical|fill_horizontal"
+        android:height="4dp">
         <shape android:shape="rectangle">
-            <solid android:color="#40FFFFFF" />
-            <corners android:radius="3dp" />
+            <solid android:color="@color/hero_track" />
+            <corners android:radius="2dp" />
         </shape>
     </item>
     <item android:id="@android:id/progress">
-        <clip>
-            <shape android:shape="rectangle">
-                <solid android:color="#FFFFFFFF" />
-                <corners android:radius="3dp" />
-            </shape>
-        </clip>
+        <scale
+            android:scaleGravity="left"
+            android:scaleWidth="100%">
+            <layer-list>
+                <item
+                    android:gravity="center_vertical|fill_horizontal"
+                    android:height="4dp">
+                    <shape android:shape="rectangle">
+                        <solid android:color="@color/hero_line" />
+                        <corners android:radius="2dp" />
+                    </shape>
+                </item>
+                <item
+                    android:width="14dp"
+                    android:height="14dp"
+                    android:gravity="right|center_vertical">
+                    <shape android:shape="oval">
+                        <gradient
+                            android:angle="270"
+                            android:endColor="@color/button_bottom"
+                            android:startColor="@color/button_top" />
+                        <stroke
+                            android:width="1.5dp"
+                            android:color="@color/hero_line" />
+                    </shape>
+                </item>
+            </layer-list>
+        </scale>
     </item>
 </layer-list>

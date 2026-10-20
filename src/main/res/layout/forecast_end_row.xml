@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- "End of October": the bank balance on the last day of the month, placed after that month's last payday. -->
+<!-- "End of October": the bank balance on the last day of the month, placed after that month's last payday. It starts
+     where the payday rows' text does; the timeline (Timeline.kt) puts a ring on its line beside it. -->
 <!-- With large text the balance goes on its own line under the text, still at the end, like the payday rows
      above it. baselineAligned="false" changes nothing visually: neither child reports a baseline (a vertical
      LinearLayout and a FrameLayout), so nothing was ever aligned. -->
@@ -11,6 +12,8 @@
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:paddingVertical="14dp"
+    android:paddingStart="60dp"
+    android:paddingEnd="0dp"
     android:screenReaderFocusable="true"
     android:tag="stack_when_large_text">
 

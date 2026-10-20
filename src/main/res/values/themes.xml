@@ -11,7 +11,7 @@
         <item name="android:datePickerDialogTheme">@style/AppDatePickerDialog</item>
     </style>
 
-    <!-- Date picker: same rounded dialog, green header with matching corners. -->
+    <!-- Date picker: same rounded dialog, terracotta header with matching corners. -->
     <style name="AppDatePickerDialog" parent="AppDialog">
         <item name="android:datePickerStyle">@style/AppDatePicker</item>
     </style>
@@ -47,7 +47,7 @@
     <style name="Card">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_marginBottom">12dp</item>
+        <item name="android:layout_marginBottom">14dp</item>
         <item name="android:background">@drawable/card</item>
         <item name="android:orientation">vertical</item>
         <item name="android:paddingHorizontal">16dp</item>
@@ -60,6 +60,27 @@
         <item name="android:layout_weight">1</item>
         <item name="android:layout_marginBottom">0dp</item>
         <item name="android:paddingVertical">14dp</item>
+    </style>
+
+    <!-- Small tinted icon at the top of a tile. -->
+    <style name="TileIcon">
+        <item name="android:layout_width">32dp</item>
+        <item name="android:layout_height">32dp</item>
+        <item name="android:layout_marginBottom">10dp</item>
+        <item name="android:background">@drawable/icon_bg</item>
+        <item name="android:importantForAccessibility">no</item>
+        <item name="android:padding">7dp</item>
+        <item name="android:tint">@color/tint_peach</item>
+    </style>
+
+    <style name="TileIcon.Olive">
+        <item name="android:backgroundTint">@color/tint_olive_bg</item>
+        <item name="android:tint">@color/tint_olive</item>
+    </style>
+
+    <style name="TileIcon.Sand">
+        <item name="android:backgroundTint">@color/tint_sand_bg</item>
+        <item name="android:tint">@color/tint_sand</item>
     </style>
 
     <!-- Tile label and caption wrap to as many lines as they need (large text needs three or more); the row
@@ -102,9 +123,13 @@
         <item name="android:orientation">vertical</item>
     </style>
 
+    <!-- Label with a colored legend dot (tinted in the layout). -->
     <style name="MonthStatLabel">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
+        <item name="android:drawableStart">@drawable/dot</item>
+        <item name="android:drawablePadding">6dp</item>
+        <item name="android:gravity">center_vertical</item>
         <item name="android:textColor">@color/text_secondary</item>
         <item name="android:textSize">13sp</item>
     </style>
@@ -127,9 +152,10 @@
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginStart">4dp</item>
         <item name="android:layout_marginBottom">12dp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:letterSpacing">-0.02</item>
         <item name="android:textColor">@color/text</item>
-        <item name="android:textSize">28sp</item>
-        <item name="android:textStyle">bold</item>
+        <item name="android:textSize">32sp</item>
     </style>
 
     <!-- Small line under a page title. -->
@@ -151,7 +177,7 @@
         <item name="android:layout_marginTop">4dp</item>
         <item name="android:layout_marginBottom">8dp</item>
         <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="android:letterSpacing">0.06</item>
+        <item name="android:letterSpacing">0.1</item>
         <item name="android:textAllCaps">true</item>
         <item name="android:textColor">@color/text_secondary</item>
         <item name="android:textSize">12sp</item>
@@ -203,15 +229,25 @@
         <item name="android:textSize">16sp</item>
     </style>
 
-    <!-- Round tinted icon at the start of a row. -->
+    <!-- Tinted icon tile at the start of a row: peach, or olive (pay) and sand (bills) below. -->
     <style name="RowIcon">
         <item name="android:layout_width">40dp</item>
         <item name="android:layout_height">40dp</item>
         <item name="android:layout_marginEnd">12dp</item>
-        <item name="android:background">@drawable/icon_circle</item>
+        <item name="android:background">@drawable/icon_bg</item>
         <item name="android:importantForAccessibility">no</item>
         <item name="android:padding">10dp</item>
-        <item name="android:tint">@color/chip_text</item>
+        <item name="android:tint">@color/tint_peach</item>
+    </style>
+
+    <style name="RowIcon.Olive">
+        <item name="android:backgroundTint">@color/tint_olive_bg</item>
+        <item name="android:tint">@color/tint_olive</item>
+    </style>
+
+    <style name="RowIcon.Sand">
+        <item name="android:backgroundTint">@color/tint_sand_bg</item>
+        <item name="android:tint">@color/tint_sand</item>
     </style>
 
     <style name="ChevronIcon">
@@ -226,9 +262,9 @@
     <style name="SectionTitle">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
         <item name="android:textColor">@color/text</item>
-        <item name="android:textSize">18sp</item>
-        <item name="android:textStyle">bold</item>
+        <item name="android:textSize">19sp</item>
     </style>
 
     <!-- Small label above a field in the bill sheet. -->
@@ -291,19 +327,19 @@
         <item name="android:textSize">16sp</item>
     </style>
 
-    <!-- At least 48dp tall (the size at normal text); grows if a label wraps with large text instead of
-         cutting it off. -->
-    <style name="GreenButton">
+    <!-- The peach button. At least 48dp tall (the size at normal text); grows if a label wraps with large text
+         instead of cutting it off. -->
+    <style name="PrimaryButton">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:background">@drawable/button_green</item>
+        <item name="android:background">@drawable/button_primary</item>
         <item name="android:fontFamily">sans-serif-medium</item>
         <item name="android:minHeight">48dp</item>
         <item name="android:minWidth">72dp</item>
         <item name="android:paddingHorizontal">20dp</item>
         <item name="android:stateListAnimator">@null</item>
         <item name="android:textAllCaps">false</item>
-        <item name="android:textColor">@android:color/white</item>
+        <item name="android:textColor">@color/on_button</item>
         <item name="android:textSize">16sp</item>
     </style>
 </resources>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The bottom tab bar: a card-colored sheet with rounded top corners; its elevation casts a soft shadow above it. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/card" />
+    <corners
+        android:topLeftRadius="24dp"
+        android:topRightRadius="24dp" />
+</shape>

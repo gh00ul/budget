@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Home-screen shortcut icon. -->
+<!-- Home-screen shortcut icon: the app's peach with a dark olive glyph. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
         <shape android:shape="oval">
-            <solid android:color="@color/brand" />
+            <gradient
+                android:angle="270"
+                android:endColor="@color/button_bottom"
+                android:startColor="@color/button_top" />
             <size android:width="48dp" android:height="48dp" />
         </shape>
     </item>
     <item
         android:bottom="12dp"
-        android:drawable="@drawable/ic_wallet"
+        android:drawable="@drawable/shortcut_glyph_wallet"
         android:left="12dp"
         android:right="12dp"
         android:top="12dp" />

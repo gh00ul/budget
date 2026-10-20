@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Small legend dot before a label (the month card's Pay, Bills, After bills); tinted where it's used. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="@color/text_secondary" />
+    <size android:width="8dp" android:height="8dp" />
+</shape>

@@ -127,6 +127,7 @@ class MainActivity : Activity() {
     private val shortDate = DateTimeFormatter.ofPattern("MMM d")
     private val weekday = DateTimeFormatter.ofPattern("EEE")
     private val monthShort = DateTimeFormatter.ofPattern("MMM")
+    private val dayInitial = DateTimeFormatter.ofPattern("EEEEE")
     // What each of these means: Budget.kt.
     private val bills get() = model.bills
     private var balance by model::balance
@@ -194,7 +195,10 @@ class MainActivity : Activity() {
     private val setupCard by view<View>(R.id.setup_card)
     private val summaryMain by view<View>(R.id.summary_main)
     private val hero by view<View>(R.id.hero)
+    private val heroLabel by view<TextView>(R.id.hero_label)
+    private val heroInfo by view<ImageView>(R.id.hero_info)
     private val heroAmount by view<TextView>(R.id.hero_amount)
+    private val heroWeek by view<WeekStrip>(R.id.hero_week)
     private val heroNote by view<TextView>(R.id.hero_note)
     private val heroProgress by view<ProgressBar>(R.id.hero_progress)
     private val heroBreakdown by view<TextView>(R.id.hero_breakdown)
@@ -237,6 +241,8 @@ class MainActivity : Activity() {
         load()
 
         findViewById<View>(R.id.bills_card).clipToOutline = true // keeps swiped rows inside the rounded card
+        hero.clipToOutline = true // keeps the touch ripple inside the rounded card
+        heroLabel.text = smallCaps("Safe to spend this week")
 
         hero.setOnClickListener { explainSafeToSpend() }
         findViewById<View>(R.id.balance_row).setOnClickListener { editBalance() }
@@ -268,9 +274,24 @@ class MainActivity : Activity() {
             restoreUndo(savedInstanceState)
             restoreFollowUp(savedInstanceState)
             exportMonth = savedInstanceState.getString("export_month")?.let { runCatching { YearMonth.parse(it) }.getOrNull() }
-        } else if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY == 0) {
+        } else {
+            riseIn()
             // (Reopened from Recents, the shortcut that first opened the app isn't being used again.)
-            handleShortcut(intent)
+            if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY == 0) handleShortcut(intent)
+        }
+    }
+
+    // Opening the app: the Summary cards rise into place one after another. (Not after a rotation or dark-mode
+    // change, and Android's "Remove animations" setting skips it.)
+    private fun riseIn() {
+        fun children(group: ViewGroup) = (0 until group.childCount).map(group::getChildAt)
+        val page = setupCard.parent as ViewGroup
+        val cards = children(page).filter { it !== summaryMain } + children(summaryMain as ViewGroup)
+        cards.filter { it.visibility != View.GONE }.forEachIndexed { i, card ->
+            card.alpha = 0f
+            card.translationY = dp(28).toFloat()
+            card.animate().alpha(1f).translationY(0f).setStartDelay(60L * i).setDuration(420)
+                .setInterpolator(PathInterpolator(0.2f, 0f, 0f, 1f)).start()
         }
     }
 
@@ -1464,7 +1485,24 @@ class MainActivity : Activity() {
 
     private fun showSummary(week: Week, today: LocalDate, monthName: String, endIfSpending: Double) {
         val shown = maxOf(0.0, week.safe)
-        hero.setBackgroundResource(if (week.safe < 0) R.drawable.hero_red else R.drawable.hero_green)
+        // Bills not covered: the card turns a rosy clay, and the amount and note a deep brick red.
+        val short = week.safe < 0
+        hero.setBackgroundResource(if (short) R.drawable.hero_short else R.drawable.hero)
+        val heroStrong = getColor(if (short) R.color.hero_short_text else R.color.hero_text)
+        val heroSoft = getColor(if (short) R.color.hero_short_secondary else R.color.hero_text_secondary)
+        heroAmount.setTextColor(heroStrong)
+        heroNote.setTextColor(if (short) heroStrong else heroSoft)
+        for (soft in listOf(heroLabel, heroBreakdown)) soft.setTextColor(heroSoft)
+        heroInfo.imageTintList = ColorStateList.valueOf(heroSoft)
+        val weekDays = ChronoUnit.DAYS.between(week.payday, week.nextPayday).toInt().coerceIn(1, 14)
+        heroWeek.setWeek(
+            List(weekDays) { week.payday.plusDays(it.toLong()).format(dayInitial) },
+            ChronoUnit.DAYS.between(week.payday, today).toInt(),
+        )
+        heroWeek.setColors(
+            done = if (short) heroStrong else getColor(R.color.hero_day_done),
+            rest = getColor(R.color.hero_day), text = heroSoft, today = heroStrong,
+        )
         animateHero(shown)
         val until = week.nextPayday.format(dayFormat)
         val staleDays = balanceUpdated?.let { ChronoUnit.DAYS.between(it, today) } ?: 0L
@@ -1786,8 +1824,16 @@ class MainActivity : Activity() {
         })
     })
 
-    // A tappable row in a dialog (Settings, Export): round icon, a title, and a line under it.
-    private fun menuRow(into: LinearLayout, icon: Int, title: String, detail: String, onClick: () -> Unit) =
+    // The tinted tiles behind row icons (background, glyph), as on Summary: peach for money and the bank, olive for pay,
+    // sand for bills and the rest.
+    private val peachIcon = R.color.tint_peach_bg to R.color.tint_peach
+    private val oliveIcon = R.color.tint_olive_bg to R.color.tint_olive
+    private val sandIcon = R.color.tint_sand_bg to R.color.tint_sand
+
+    // A tappable row in a dialog (Settings, Export): an icon on a tinted tile, a title, and a line under it.
+    private fun menuRow(
+        into: LinearLayout, icon: Int, title: String, detail: String, tint: Pair<Int, Int> = peachIcon, onClick: () -> Unit,
+    ) =
         into.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -1797,8 +1843,9 @@ class MainActivity : Activity() {
             setOnClickListener { onClick() }
             addView(ImageView(context).apply {
                 setImageResource(icon)
-                setBackgroundResource(R.drawable.icon_circle)
-                imageTintList = ColorStateList.valueOf(accent)
+                setBackgroundResource(R.drawable.icon_bg)
+                backgroundTintList = ColorStateList.valueOf(getColor(tint.first))
+                imageTintList = ColorStateList.valueOf(getColor(tint.second))
                 setPadding(dp(10), dp(10), dp(10), dp(10))
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(16) }
@@ -2111,21 +2158,24 @@ class MainActivity : Activity() {
             setPadding(0, dp(4), 0, dp(4))
         }
         lateinit var dialog: AlertDialog
-        fun row(icon: Int, title: String, detail: String, action: () -> Unit) = menuRow(box, icon, title, detail) {
-            dialog.dismiss()
-            action()
-        }
+        fun row(icon: Int, title: String, detail: String, tint: Pair<Int, Int> = peachIcon, action: () -> Unit) =
+            menuRow(box, icon, title, detail, tint) {
+                dialog.dismiss()
+                action()
+            }
         row(R.drawable.ic_tab_paydays, "Your pay",
-            if (weeklyIncome > 0) "${money.format(weeklyIncome)} every $dayName" else "Not set") { editPay() }
+            if (weeklyIncome > 0) "${money.format(weeklyIncome)} every $dayName" else "Not set", oliveIcon) { editPay() }
         if (bank.isLinked) {
             row(R.drawable.ic_wallet, bankName(), "Synced ${ago(bank.checkedAt)} · sync, switch or disconnect") { bankSettings() }
         } else {
             row(R.drawable.ic_wallet, "Connect your bank", "Your balance and purchases through Plaid") { connectBank() }
         }
-        if (isSetUp()) row(R.drawable.ic_share, "Export $monthName", "A spreadsheet file, or text to send") { exportThisMonth() }
+        if (isSetUp()) {
+            row(R.drawable.ic_share, "Export $monthName", "A spreadsheet file, or text to send", sandIcon) { exportThisMonth() }
+        }
         row(R.drawable.ic_widget, "Home-screen widget",
             if (BudgetWidget.isOnHomeScreen(this)) "On your home screen · tap to add another" else "Safe to spend at a glance") { addWidget() }
-        row(R.drawable.ic_sync, "Check for updates", "Version ${BuildConfig.VERSION_NAME} · ${Running.updateStatus}") {
+        row(R.drawable.ic_sync, "Check for updates", "Version ${BuildConfig.VERSION_NAME} · ${Running.updateStatus}", sandIcon) {
             Toast.makeText(this, "Checking for updates…", Toast.LENGTH_SHORT).show()
             checkForUpdate(fromUser = true)
         }

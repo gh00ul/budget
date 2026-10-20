@@ -134,20 +134,6 @@ class BudgetWidget : AppWidgetProvider() {
             return views
         }
 
-        // Small capitals, like the home screen clock's "Sunrise 6:32 AM": capitals stay full size and lowercase
-        // letters become smaller capitals. Done by hand because the phone's font may not have small capitals.
-        private fun smallCaps(text: String): CharSequence {
-            val caps = SpannableString(text.uppercase())
-            var i = 0
-            while (i < text.length) {
-                if (!text[i].isLowerCase()) { i++; continue }
-                val start = i
-                while (i < text.length && text[i].isLowerCase()) i++
-                caps.setSpan(RelativeSizeSpan(0.8f), start, i, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            }
-            return caps
-        }
-
         // "Due in 3 days" moves on at midnight, and so does the pay week on payday. The alarm doesn't wake the phone:
         // it goes off the next time the phone is in use. Android clears alarms on restart; the regular update
         // (updatePeriodMillis) and the redraw Android does after an app update pick it up again.
@@ -238,4 +224,19 @@ class BudgetWidget : AppWidgetProvider() {
                 else money.format(amount)
         }
     }
+}
+
+// Small capitals, like the home screen clock's "Sunrise 6:32 AM": capitals stay full size and lowercase letters become
+// smaller capitals. Done by hand because the phone's font may not have small capitals. Used by the widget and the
+// app's Safe to spend card.
+internal fun smallCaps(text: String): CharSequence {
+    val caps = SpannableString(text.uppercase())
+    var i = 0
+    while (i < text.length) {
+        if (!text[i].isLowerCase()) { i++; continue }
+        val start = i
+        while (i < text.length && text[i].isLowerCase()) i++
+        caps.setSpan(RelativeSizeSpan(0.8f), start, i, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    }
+    return caps
 }

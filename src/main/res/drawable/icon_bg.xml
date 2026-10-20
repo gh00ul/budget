@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Rounded-square tile behind a row's icon. Peach by default; RowIcon.Olive / RowIcon.Sand (themes.xml) tint it. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/tint_peach_bg" />
+    <corners android:radius="14dp" />
+</shape>

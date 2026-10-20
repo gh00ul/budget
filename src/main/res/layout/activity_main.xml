@@ -59,9 +59,9 @@
                         android:id="@+id/settings_button"
                         android:layout_width="48dp"
                         android:layout_height="48dp"
-                        android:background="?android:attr/selectableItemBackgroundBorderless"
+                        android:background="@drawable/round_button"
                         android:contentDescription="Settings"
-                        android:padding="12dp"
+                        android:padding="13dp"
                         android:scaleType="fitCenter"
                         android:src="@drawable/ic_tab_settings"
                         android:tint="@color/text_secondary" />
@@ -91,7 +91,7 @@
 
                     <Button
                         android:id="@+id/update_button"
-                        style="@style/GreenButton"
+                        style="@style/PrimaryButton"
                         android:text="Update" />
                 </LinearLayout>
 
@@ -127,7 +127,7 @@
                              inline because lint doesn't resolve styles. -->
                         <ImageView
                             android:id="@+id/setup_pay_icon"
-                            style="@style/RowIcon"
+                            style="@style/RowIcon.Olive"
                             android:importantForAccessibility="no"
                             android:src="@drawable/ic_tab_paydays" />
 
@@ -173,7 +173,7 @@
 
                         <ImageView
                             android:id="@+id/setup_bills_icon"
-                            style="@style/RowIcon"
+                            style="@style/RowIcon.Sand"
                             android:importantForAccessibility="no"
                             android:src="@drawable/ic_tab_bills" />
 
@@ -243,7 +243,7 @@
 
                     <Button
                         android:id="@+id/setup_next"
-                        style="@style/GreenButton"
+                        style="@style/PrimaryButton"
                         android:layout_width="match_parent"
                         android:layout_marginTop="12dp" />
 
@@ -268,21 +268,25 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
 
-                    <!-- Safe to spend. Tap for the breakdown. -->
+                    <!-- Safe to spend. Tap for the breakdown. The sand-to-peach card of the home-screen widget, with
+                         the same kind of progress line; the day strip under it shows where today is in the pay week.
+                         Text colors are set in showSummary (they change when bills aren't covered). -->
                     <LinearLayout
                         android:id="@+id/hero"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="12dp"
-                        android:background="@drawable/hero_green"
+                        android:layout_marginBottom="14dp"
+                        android:background="@drawable/hero"
+                        android:elevation="2dp"
                         android:foreground="?android:attr/selectableItemBackground"
                         android:orientation="vertical"
-                        android:paddingHorizontal="16dp"
-                        android:paddingVertical="20dp">
+                        android:paddingHorizontal="20dp"
+                        android:paddingTop="18dp"
+                        android:paddingBottom="16dp">
 
                         <!-- UseCompoundDrawables: the info icon is drawn at 20dp (its vector is 24dp) and tinted
-                             #CC white while the label is #D9 white; a compound drawable would use the vector's
-                             intrinsic size and the text's layout, changing the look. -->
+                             separately from the label; a compound drawable would use the vector's intrinsic size and
+                             the text's layout, changing the look. The label is set in small capitals in code. -->
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
@@ -291,46 +295,51 @@
                             tools:ignore="UseCompoundDrawables">
 
                             <TextView
+                                android:id="@+id/hero_label"
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
+                                android:letterSpacing="0.04"
                                 android:text="Safe to spend this week"
-                                android:textColor="#D9FFFFFF"
-                                android:textSize="15sp" />
+                                android:textColor="@color/hero_text_secondary"
+                                android:textSize="14sp" />
 
                             <ImageView
+                                android:id="@+id/hero_info"
                                 android:layout_width="20dp"
                                 android:layout_height="20dp"
                                 android:importantForAccessibility="no"
                                 android:src="@drawable/ic_info"
-                                android:tint="#CCFFFFFF" />
+                                android:tint="@color/hero_text_secondary" />
                         </LinearLayout>
 
                         <TextView
                             android:id="@+id/hero_amount"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:fontFamily="sans-serif-medium"
                             android:fontFeatureSettings="tnum"
                             android:letterSpacing="-0.02"
                             android:maxLines="1"
-                            android:textColor="@android:color/white"
-                            android:textSize="44sp"
-                            android:textStyle="bold" />
+                            android:textColor="@color/hero_text"
+                            android:textSize="50sp" />
 
                         <TextView
                             android:id="@+id/hero_note"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:textColor="#E6FFFFFF"
+                            android:textColor="@color/hero_text_secondary"
                             android:textSize="14sp" />
 
-                        <!-- How much of this week's money is already spent -->
+                        <!-- How much of this week's money is already spent. Tall enough for the knob; the line
+                             itself is 4dp. -->
                         <ProgressBar
                             android:id="@+id/hero_progress"
                             style="?android:attr/progressBarStyleHorizontal"
                             android:layout_width="match_parent"
-                            android:layout_height="6dp"
-                            android:layout_marginTop="12dp"
+                            android:layout_height="14dp"
+                            android:layout_marginTop="16dp"
                             android:importantForAccessibility="no"
                             android:indeterminate="false"
                             android:max="1000"
@@ -340,12 +349,21 @@
                             android:id="@+id/hero_breakdown"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="6dp"
+                            android:layout_marginTop="4dp"
                             android:ellipsize="end"
                             android:fontFeatureSettings="tnum"
                             android:maxLines="2"
-                            android:textColor="#CCFFFFFF"
+                            android:textColor="@color/hero_text_secondary"
                             android:textSize="13sp" />
+
+                        <!-- The pay week, payday to the day before the next: days gone, today, days left. Decorative:
+                             the note above already says when payday is. -->
+                        <com.gh00ul.budget.WeekStrip
+                            android:id="@+id/hero_week"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="14dp"
+                            android:importantForAccessibility="no" />
                     </LinearLayout>
 
                     <!-- Bank balance: tap to change; or log a purchase -->
@@ -410,7 +428,7 @@
                                     android:layout_height="wrap_content"
                                     android:layout_marginStart="8dp"
                                     android:textColor="@color/text"
-                                    android:textSize="16sp" />
+                                    android:textSize="18sp" />
                             </LinearLayout>
 
                             <ImageView
@@ -455,7 +473,7 @@
                             style="@style/GlanceRow">
 
                             <ImageView
-                                style="@style/RowIcon"
+                                style="@style/RowIcon.Olive"
                                 android:importantForAccessibility="no"
                                 android:src="@drawable/ic_tab_paydays" />
 
@@ -532,7 +550,7 @@
                             style="@style/GlanceRow">
 
                             <ImageView
-                                style="@style/RowIcon"
+                                style="@style/RowIcon.Sand"
                                 android:importantForAccessibility="no"
                                 android:src="@drawable/ic_tab_bills" />
 
@@ -575,8 +593,13 @@
                         <LinearLayout
                             style="@style/Tile"
                             android:layout_height="match_parent"
-                            android:layout_marginEnd="6dp"
+                            android:layout_marginEnd="7dp"
                             android:screenReaderFocusable="true">
+
+                            <ImageView
+                                style="@style/TileIcon.Sand"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_tab_paydays" />
 
                             <TextView
                                 android:id="@+id/hero_end_label"
@@ -594,8 +617,13 @@
                         <LinearLayout
                             style="@style/Tile"
                             android:layout_height="match_parent"
-                            android:layout_marginStart="6dp"
+                            android:layout_marginStart="7dp"
                             android:screenReaderFocusable="true">
+
+                            <ImageView
+                                style="@style/TileIcon.Olive"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_wallet" />
 
                             <TextView
                                 style="@style/TileLabel"
@@ -617,8 +645,8 @@
                     <LinearLayout
                         android:id="@+id/month_card"
                         style="@style/Card"
-                        android:layout_marginTop="12dp"
-                        android:paddingTop="4dp">
+                        android:layout_marginTop="14dp"
+                        android:paddingTop="6dp">
 
                         <LinearLayout
                             android:layout_width="match_parent"
@@ -633,20 +661,21 @@
                                 android:layout_weight="1"
                                 android:accessibilityHeading="true" />
 
-                            <!-- The negative margin lines the icon's ripple up with the card's padding. -->
+                            <!-- A peach pill; the negative margin lines its edge up with the card's padding. -->
                             <TextView
                                 android:id="@+id/month_export"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:layout_marginEnd="-10dp"
-                                android:background="?android:attr/selectableItemBackground"
+                                android:layout_marginEnd="-4dp"
+                                android:background="@drawable/pill_button"
                                 android:drawableStart="@drawable/ic_share"
                                 android:drawablePadding="6dp"
                                 android:drawableTint="@color/chip_text"
                                 android:fontFamily="sans-serif-medium"
                                 android:gravity="center_vertical"
                                 android:minHeight="48dp"
-                                android:paddingHorizontal="10dp"
+                                android:paddingStart="12dp"
+                                android:paddingEnd="14dp"
                                 android:text="Export"
                                 android:textColor="@color/chip_text"
                                 android:textSize="15sp" />
@@ -666,6 +695,7 @@
 
                                 <TextView
                                     style="@style/MonthStatLabel"
+                                    android:drawableTint="@color/positive"
                                     android:text="Pay" />
 
                                 <TextView
@@ -679,6 +709,7 @@
 
                                 <TextView
                                     style="@style/MonthStatLabel"
+                                    android:drawableTint="@color/accent"
                                     android:text="Bills" />
 
                                 <TextView
@@ -692,6 +723,7 @@
 
                                 <TextView
                                     style="@style/MonthStatLabel"
+                                    android:drawableTint="@color/tint_sand"
                                     android:text="After bills" />
 
                                 <TextView
@@ -704,8 +736,8 @@
                             android:id="@+id/month_progress"
                             style="?android:attr/progressBarStyleHorizontal"
                             android:layout_width="match_parent"
-                            android:layout_height="6dp"
-                            android:layout_marginTop="14dp"
+                            android:layout_height="12dp"
+                            android:layout_marginTop="16dp"
                             android:importantForAccessibility="no"
                             android:indeterminate="false"
                             android:max="1000"
@@ -715,7 +747,7 @@
                             android:id="@+id/month_status"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="6dp"
+                            android:layout_marginTop="4dp"
                             android:textColor="@color/text_secondary"
                             android:textSize="13sp" />
                     </LinearLayout>
@@ -757,7 +789,7 @@
                         style="@style/GlanceRow">
 
                         <ImageView
-                            style="@style/RowIcon"
+                            style="@style/RowIcon.Olive"
                             android:importantForAccessibility="no"
                             android:src="@drawable/ic_tab_paydays" />
 
@@ -814,7 +846,7 @@
 
                     <Button
                         android:id="@+id/paydays_empty_button"
-                        style="@style/GreenButton"
+                        style="@style/PrimaryButton"
                         android:layout_marginTop="14dp" />
                 </LinearLayout>
 
@@ -836,14 +868,13 @@
                             android:textColor="@color/text_secondary"
                             android:textSize="12sp" />
 
-                        <!-- Rows are added in code, including the end-of-month row -->
-                        <LinearLayout
+                        <!-- Rows are added in code, including the end-of-month row; a line joins their date badges -->
+                        <com.gh00ul.budget.Timeline
                             android:id="@+id/forecast_list"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:divider="@drawable/divider_payday"
-                            android:orientation="vertical"
-                            android:showDividers="middle" />
+                            android:layout_marginTop="4dp"
+                            android:orientation="vertical" />
                     </LinearLayout>
 
                     <LinearLayout
@@ -851,8 +882,15 @@
                         style="@style/Card">
 
                         <TextView
+                            style="@style/SectionTitle"
+                            android:accessibilityHeading="true"
+                            android:text="Your balance ahead"
+                            android:textSize="17sp" />
+
+                        <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
                             android:text="Bank balance after each payday's bills"
                             android:textColor="@color/text_secondary"
                             android:textSize="13sp" />
@@ -860,8 +898,8 @@
                         <com.gh00ul.budget.BalanceChart
                             android:id="@+id/chart"
                             android:layout_width="match_parent"
-                            android:layout_height="150dp"
-                            android:layout_marginTop="6dp" />
+                            android:layout_height="170dp"
+                            android:layout_marginTop="10dp" />
                     </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
@@ -892,11 +930,11 @@
                     android:id="@+id/bills_subtitle"
                     style="@style/PageSubtitle" />
 
-                <!-- Rows run edge to edge so the swipe layers fill the card -->
+                <!-- Rows run edge to edge (inside the card's 1dp rim) so the swipe layers fill the card -->
                 <LinearLayout
                     android:id="@+id/bills_card"
                     style="@style/Card"
-                    android:paddingHorizontal="0dp"
+                    android:paddingHorizontal="1dp"
                     android:paddingVertical="6dp">
 
                     <!-- Section headers and rows are added in code -->
@@ -941,7 +979,7 @@
 
                         <Button
                             android:id="@+id/add_first_bill"
-                            style="@style/GreenButton"
+                            style="@style/PrimaryButton"
                             android:layout_marginTop="14dp"
                             android:text="Add a bill" />
 
@@ -1012,7 +1050,7 @@
                 android:minHeight="48dp"
                 android:paddingHorizontal="12dp"
                 android:text="Undo"
-                android:textColor="#81C784"
+                android:textColor="@color/snackbar_action"
                 android:textSize="15sp" />
         </LinearLayout>
 
@@ -1027,22 +1065,19 @@
             android:contentDescription="Add bill"
             android:elevation="6dp"
             android:src="@drawable/ic_add"
-            android:tint="@android:color/white"
+            android:tint="@color/on_button"
             android:visibility="gone" />
     </FrameLayout>
 
-    <!-- Bottom tab bar (buttons are added in code) -->
+    <!-- Bottom tab bar (buttons are added in code): a sheet with rounded top corners and a soft shadow -->
     <LinearLayout
         android:id="@+id/nav_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@color/card"
-        android:orientation="vertical">
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="@color/divider" />
+        android:background="@drawable/nav_bg"
+        android:elevation="10dp"
+        android:orientation="vertical"
+        android:paddingTop="4dp">
 
         <LinearLayout
             android:id="@+id/nav"

@@ -1,18 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- How much of this month's bills is paid, on the Summary's month card. -->
+<!-- How much of this month's bills is paid, on the Summary's month card: an olive line with a ring at its end, the
+     same shape as the line on the Safe to spend card. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:id="@android:id/background">
+    <item
+        android:id="@android:id/background"
+        android:gravity="center_vertical|fill_horizontal"
+        android:height="4dp">
         <shape android:shape="rectangle">
-            <solid android:color="@color/input" />
-            <corners android:radius="3dp" />
+            <solid android:color="@color/divider" />
+            <corners android:radius="2dp" />
         </shape>
     </item>
     <item android:id="@android:id/progress">
-        <clip>
-            <shape android:shape="rectangle">
-                <solid android:color="@color/positive" />
-                <corners android:radius="3dp" />
-            </shape>
-        </clip>
+        <scale
+            android:scaleGravity="left"
+            android:scaleWidth="100%">
+            <layer-list>
+                <item
+                    android:gravity="center_vertical|fill_horizontal"
+                    android:height="4dp">
+                    <shape android:shape="rectangle">
+                        <solid android:color="@color/positive" />
+                        <corners android:radius="2dp" />
+                    </shape>
+                </item>
+                <item
+                    android:width="12dp"
+                    android:height="12dp"
+                    android:gravity="right|center_vertical">
+                    <shape android:shape="oval">
+                        <solid android:color="@color/card" />
+                        <stroke
+                            android:width="2.5dp"
+                            android:color="@color/positive" />
+                    </shape>
+                </item>
+            </layer-list>
+        </scale>
     </item>
 </layer-list>

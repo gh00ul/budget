@@ -1,25 +1,60 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Light mode. Dark mode versions live in values-night/colors.xml. Text colors meet WCAG AA (4.5:1). -->
+<!-- Light mode: warm sand, peach and olive, the palette of the home-screen widget (and the owner's clock and music
+     widgets it was matched to). Dark mode versions live in values-night/colors.xml. Text colors meet WCAG AA (4.5:1)
+     on the card, the page and their tinted backgrounds; outlines and lines meet 3:1. -->
 <resources>
-    <color name="brand">#2E7D32</color>
-    <color name="accent">#2E7D32</color>
-    <color name="background">#F2F4F3</color>
-    <color name="card">#FFFFFF</color>
-    <color name="input">#F1F3F2</color>
-    <color name="outline">#858B88</color>
-    <color name="divider">#E3E7E5</color>
-    <color name="text">#212121</color>
-    <color name="text_secondary">#5F6662</color>
-    <color name="hint">#6F7672</color>
-    <color name="positive">#2E7D32</color>
-    <color name="negative">#C62828</color>
-    <color name="warning">#B84D00</color>
-    <color name="chip">#E8F5E9</color>
-    <color name="chip_text">#2E7D32</color>
-    <color name="nav_indicator">#C8E6C9</color>
-    <color name="delete_bg">#FDECEA</color>
-    <color name="snackbar">#2F3331</color>
-    <color name="warn_bg">#FFF3E0</color>
+    <color name="brand">#A04A22</color>
+    <color name="accent">#A04A22</color>
+    <color name="background">#F2EBE0</color>
+    <color name="card">#FCF8F2</color>
+    <color name="card_rim">#E9DFCF</color>
+    <color name="input">#F4EDE2</color>
+    <color name="outline">#93887A</color>
+    <color name="divider">#ECE3D5</color>
+    <color name="text">#2D2F21</color>
+    <color name="text_secondary">#5E5646</color>
+    <color name="hint">#6E6553</color>
+    <color name="positive">#4E6A2B</color>
+    <color name="negative">#A8321E</color>
+    <color name="warning">#975400</color>
+    <color name="chip">#F6E1C8</color>
+    <color name="chip_text">#8A3D1B</color>
+    <color name="nav_indicator">#F6E1C8</color>
+    <color name="delete_bg">#F8DED6</color>
+    <color name="paid_bg">#E6EDD5</color>
+    <color name="snackbar">#2F3122</color>
+    <color name="snackbar_action">#F5B47C</color>
+    <color name="warn_bg">#FBE7C8</color>
+    <color name="scrim">#73241C10</color>
+
+    <!-- Round icon backgrounds and their glyphs: peach (money in the bank), olive (pay), sand (bills). -->
+    <color name="tint_peach_bg">#F6E1C8</color>
+    <color name="tint_peach">#8A3D1B</color>
+    <color name="tint_olive_bg">#E6EDD5</color>
+    <color name="tint_olive">#46612A</color>
+    <color name="tint_sand_bg">#EFE4D0</color>
+    <color name="tint_sand">#6B5A33</color>
+
+    <!-- The peach button, like the widget's round button; the same in dark mode. -->
+    <color name="button_top">#FCD19C</color>
+    <color name="button_bottom">#F2A96B</color>
+    <color name="button_rim">#FBDDB8</color>
+    <color name="on_button">#2D2F21</color>
+
+    <!-- Safe to spend card: the widget's sand-to-peach card. hero_short_* is the card when bills aren't covered. -->
+    <color name="hero_top">#DCCDB2</color>
+    <color name="hero_bottom">#E8C49C</color>
+    <color name="hero_rim">#99F7EBDA</color>
+    <color name="hero_text">#2D2F21</color>
+    <color name="hero_text_secondary">#584E38</color>
+    <color name="hero_track">#33584E38</color>
+    <color name="hero_line">#A35A33</color>
+    <color name="hero_day">#24584E38</color>
+    <color name="hero_day_done">#A35A33</color>
+    <color name="hero_short_top">#EFD3C6</color>
+    <color name="hero_short_bottom">#E9BBA8</color>
+    <color name="hero_short_text">#7A2A18</color>
+    <color name="hero_short_secondary">#5A4A36</color>
 
     <!-- Home-screen widget: taken from the owner's music widget so the two match. Not in values-night on purpose:
          the widget sits on the wallpaper and looks the same in dark mode. Text is at least 4.5:1 on the card. -->

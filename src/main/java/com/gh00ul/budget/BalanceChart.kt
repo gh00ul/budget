@@ -16,7 +16,8 @@ import kotlin.math.abs
 // Line chart of the balance after each pay period. The first point ("Now") is today's bank balance minus the
 // bills still due before the next payday, so it's a forecast like the rest; it's drawn solid only to mark where
 // the line starts. Each later point is the balance after that payday's paycheck and bills. Labels the first and
-// the final value, and the low point when the balance actually dips (or goes negative).
+// the final value, and the low point when the balance actually dips (or goes negative). The line is a smooth curve
+// that never overshoots: between two points it only moves between their values, so it shows no dip that isn't there.
 class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs) {
     private var labels: List<String> = emptyList()
     private var values: List<Double> = emptyList()
@@ -27,7 +28,7 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
 
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 2.5f * dp
+        strokeWidth = 3 * dp
         strokeJoin = Paint.Join.ROUND
         strokeCap = Paint.Cap.ROUND
     }
@@ -36,7 +37,13 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
     private val holePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = context.getColor(R.color.card) }
     private val basePaint = Paint().apply {
         strokeWidth = 1 * dp
-        color = context.getColor(R.color.divider)
+        color = context.getColor(R.color.card_rim)
+    }
+    private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1 * dp
+        pathEffect = DashPathEffect(floatArrayOf(2 * dp, 4 * dp), 0f)
+        color = context.getColor(R.color.card_rim)
     }
     private val zeroPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -85,13 +92,13 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
     // Room for the value labels above and the axis labels below, which grow with the font size.
     private fun plotTop() = valueText.textSize + 12 * dp
     private fun plotBottom() = height - axisText.textSize - 14 * dp
-    private fun lineColor() = context.getColor(if (values.any { it < 0 }) R.color.negative else R.color.positive)
+    private fun lineColor() = context.getColor(if (values.any { it < 0 }) R.color.negative else R.color.accent)
 
     // The fade under the line depends only on the color and the plot's height, so it's made when those change.
     private fun updateFill() {
         val color = lineColor()
         fillPaint.shader = LinearGradient(
-            0f, plotTop(), 0f, plotBottom(), withAlpha(color, 0x30), withAlpha(color, 0x00), Shader.TileMode.CLAMP,
+            0f, plotTop(), 0f, plotBottom(), withAlpha(color, 0x40), withAlpha(color, 0x00), Shader.TileMode.CLAMP,
         )
     }
 
@@ -113,10 +120,23 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
         fun x(i: Int) = left + (right - left) * i / (values.size - 1)
         fun y(v: Double) = top + ((maxV - v) / span * (bottom - top)).toFloat()
 
+        // Two faint guides across the plot, then the baseline.
+        for (k in 1..2) {
+            val gy = top + (bottom - top) * k / 3
+            canvas.drawLine(left, gy, right, gy, gridPaint)
+        }
         canvas.drawLine(left, bottom, right, bottom, basePaint)
 
+        // Each stretch bends at its midpoint (both control points halfway across, level with their ends).
         line.reset()
-        values.forEachIndexed { i, v -> if (i == 0) line.moveTo(x(i), y(v)) else line.lineTo(x(i), y(v)) }
+        values.forEachIndexed { i, v ->
+            if (i == 0) {
+                line.moveTo(x(i), y(v))
+            } else {
+                val midX = (x(i - 1) + x(i)) / 2
+                line.cubicTo(midX, y(values[i - 1]), midX, y(v), x(i), y(v))
+            }
+        }
         area.set(line)
         area.lineTo(x(values.size - 1), bottom)
         area.lineTo(x(0), bottom)
@@ -132,9 +152,9 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
         val showLow = low in 1 until last || values[low] < 0
         dotPaint.color = color
         values.forEachIndexed { i, v ->
-            val radius = if (showLow && i == low) 6 * dp else 4 * dp
+            val radius = if (showLow && i == low) 6.5f * dp else 4.5f * dp
             canvas.drawCircle(x(i), y(v), radius, dotPaint)
-            if (i != 0) canvas.drawCircle(x(i), y(v), radius - 2 * dp, holePaint) // the first point is solid
+            if (i != 0) canvas.drawCircle(x(i), y(v), radius - 2.5f * dp, holePaint) // the first point is solid
         }
 
         // Dates under the points, kept inside the view (with large text the first and last ran off the edges).

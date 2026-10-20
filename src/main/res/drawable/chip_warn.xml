@@ -2,5 +2,5 @@
 <!-- Date badge for a bill due within 3 days. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
     <solid android:color="@color/warn_bg" />
-    <corners android:radius="12dp" />
+    <corners android:radius="14dp" />
 </shape>
