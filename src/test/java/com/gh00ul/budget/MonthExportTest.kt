@@ -277,6 +277,7 @@ class MonthExportTest {
             Bills: $1,306.99 · $95.00 still to pay
             Pay minus bills: $1,163.01
             Spent so far: $82.40 (from your bank)
+            Most spent at: Grocer $82.40
             Bank today: $1,842.37
             Safe to spend this week: $130.13
             End of October: $1,203.88 after bills · $850.00 if you spend your weekly money
@@ -295,6 +296,29 @@ class MonthExportTest {
             """.trimIndent(),
             text,
         )
+    }
+
+    @Test
+    fun topSpendingAddsUpEachPlace() {
+        val top = topSpending(listOf(
+            txn("1", "2026-10-03", "Grocer", -82.40),
+            txn("2", "2026-10-05", "GROCER ", -10.10), // the same place
+            txn("3", "2026-10-06", "Grocer", 2.50), // a refund there
+            txn("4", "2026-10-07", "Coffee", -4.25),
+            txn("5", "2026-10-08", "Gas", -40.0),
+            txn("6", "2026-10-09", "Books", -40.0),
+            txn("7", "2026-10-10", "Store refund", 12.40), // only money back: not a place money went
+            txn("8", "2026-10-11", "  ", -5.0),
+        ))
+        assertEquals(listOf("Grocer" to 90.0, "Books" to 40.0, "Gas" to 40.0), top)
+        assertEquals(emptyList<Pair<String, Double>>(), topSpending(emptyList()))
+        assertEquals(1, topSpending(listOf(txn("1", "2026-10-03", "A", -1.0), txn("2", "2026-10-03", "B", -2.0)), count = 1).size)
+    }
+
+    @Test
+    fun textLeavesOutTopSpendingWithNothingSpent() {
+        val text = monthText(report(purchases = listOf(txn("1", "2026-10-06", "Store refund", 12.4))), Locale.US)
+        assertFalse("Most spent at" in text)
     }
 
     @Test
