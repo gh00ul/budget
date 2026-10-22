@@ -68,6 +68,7 @@ import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -2261,7 +2262,17 @@ class MainActivity : Activity() {
         val resolver = applicationContext.contentResolver // not this screen: the write can outlive it
         thread(name = "budget-export") {
             val result = runCatching {
-                (resolver.openOutputStream(uri) ?: throw IOException("no stream")).use { it.write(csv.toByteArray()) }
+                // "wt": picking an existing file in the picker (last export's budget-2026-10.csv, say) hands back that
+                // file, and plain "w" may not cut it short, which would leave the end of a longer old export behind
+                // the new one. A provider that doesn't take "wt" gets "w".
+                val stream = try {
+                    resolver.openOutputStream(uri, "wt")
+                } catch (e: FileNotFoundException) {
+                    resolver.openOutputStream(uri, "w")
+                } catch (e: IllegalArgumentException) {
+                    resolver.openOutputStream(uri, "w")
+                }
+                (stream ?: throw IOException("no stream")).use { it.write(csv.toByteArray()) }
             }
             result.exceptionOrNull()?.let { Log.w("Budget", "Export failed: ${it.javaClass.name}") }
             Running.main.post { Running.liveScreen()?.exportSaved(month, result.isSuccess) }
