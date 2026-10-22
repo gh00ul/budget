@@ -89,6 +89,7 @@ internal fun monthCsv(r: MonthReport): String {
     }
     line("Pay this month", r.payTotal)
     line("Bills this month", r.billsTotal)
+    line("Bills still to pay", r.billsLeft)
     line("Pay minus bills", r.payTotal - r.billsTotal)
     r.spent?.let { line("Spent so far (bank purchases minus refunds)", it) }
     line(if (r.bankIsEstimate) "Bank balance today (estimated)" else "Bank balance today", r.bank)
@@ -132,6 +133,9 @@ internal fun monthText(r: MonthReport, locale: Locale = Locale.getDefault()): St
         append("\n")
         append("Pay minus bills: ${money.format(cents(r.payTotal - r.billsTotal))}\n")
         r.spent?.let { append("Spent so far: ${money.format(it)} (from your bank)\n") }
+        r.purchases?.let(::topSpending)?.takeIf { it.isNotEmpty() }?.let { top ->
+            append("Most spent at: ${top.joinToString(" · ") { (name, amount) -> "$name ${money.format(amount)}" }}\n")
+        }
         append("Bank today: ${money.format(r.bank)}${if (r.bankIsEstimate) " (estimated)" else ""}\n")
         append("Safe to spend this week: ${money.format(r.safe)}\n")
         if (r.endBillsOnly != null) {
@@ -160,6 +164,16 @@ internal fun monthText(r: MonthReport, locale: Locale = Locale.getDefault()): St
         }
     }.trimEnd() + "\n"
 }
+
+// Where the month's bank purchases went: the `count` names spent at most, purchases minus refunds at each (the bank's
+// name, trimmed, ignoring case), most first. Names that come out even or ahead (all refunds) are left out.
+internal fun topSpending(purchases: List<BankTxn>, count: Int = 3): List<Pair<String, Double>> =
+    purchases.filter { it.name.isNotBlank() }
+        .groupBy { it.name.trim().lowercase(Locale.ROOT) }
+        .map { (_, txns) -> txns.first().name.trim() to cents(-txns.sumOf { it.amount }) }
+        .filter { it.second > 0 }
+        .sortedWith(compareByDescending<Pair<String, Double>> { it.second }.thenBy { it.first })
+        .take(count)
 
 // Put at the start of the file so Excel reads it as UTF-8 (it would garble "····1234" otherwise).
 internal val BYTE_ORDER_MARK = Char(0xFEFF).toString()
