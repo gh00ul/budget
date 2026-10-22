@@ -203,6 +203,7 @@ class MonthExportTest {
                 "Summary,Amount",
                 "Pay this month,1690.00",
                 "Bills this month,36.99",
+                "Bills still to pay,0.00",
                 "Pay minus bills,1653.01",
                 "Spent so far (bank purchases minus refunds),22.75",
                 "Bank balance today,1842.37",
@@ -229,6 +230,18 @@ class MonthExportTest {
         assertFalse("Spent so far" in csv) // no bank linked
         assertFalse("End of month" in csv) // a month that's over
         assertTrue("2026-10-20,Bill,Phone,-65.00,Due,Monthly\r\n" in csv)
+    }
+
+    @Test
+    fun csvSaysWhatIsStillToPay() {
+        // Paid, past its date (counted as gone from the bank), and two still to come.
+        val csv = monthCsv(report(bills = listOf(
+            MonthBill(day("2026-10-01"), "Rent", 1200.0, Freq.MONTHLY, null),
+            MonthBill(day("2026-10-14"), "Spotify", 11.99, Freq.MONTHLY, day("2026-10-12")),
+            MonthBill(day("2026-10-15"), "Water", 30.0, Freq.MONTHLY, null),
+            MonthBill(day("2026-10-20"), "Phone", 65.0, Freq.MONTHLY, null),
+        )))
+        assertTrue("Bills this month,1306.99\r\nBills still to pay,95.00\r\n" in csv)
     }
 
     @Test

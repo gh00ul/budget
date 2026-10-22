@@ -89,6 +89,7 @@ internal fun monthCsv(r: MonthReport): String {
     }
     line("Pay this month", r.payTotal)
     line("Bills this month", r.billsTotal)
+    line("Bills still to pay", r.billsLeft)
     line("Pay minus bills", r.payTotal - r.billsTotal)
     r.spent?.let { line("Spent so far (bank purchases minus refunds)", it) }
     line(if (r.bankIsEstimate) "Bank balance today (estimated)" else "Bank balance today", r.bank)
