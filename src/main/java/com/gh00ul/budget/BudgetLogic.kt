@@ -4,10 +4,12 @@ import org.json.JSONException
 import org.json.JSONObject
 import java.math.RoundingMode
 import java.time.DateTimeException
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeParseException
 import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalAdjusters
 import kotlin.math.abs
 import kotlin.math.roundToLong
 
@@ -95,6 +97,15 @@ internal class Bill(
 
     fun withPaid(due: LocalDate, on: LocalDate) = Bill(name, amount, freq, date, paid + (due to on), id)
     fun withoutPaid(due: LocalDate) = Bill(name, amount, freq, date, paid - due, id)
+}
+
+// The oldest one-off paycheck amount worth keeping when the budget loads: from this pay week on, any the last balance
+// still depends on, and every payday of this month, which the month card and the export add up. (Keeping only this
+// pay week made an overtime paycheck earlier in the month count at the usual pay once the app was reopened.)
+internal fun paycheckChangesKeptFrom(today: LocalDate, payday: DayOfWeek, balanceUpdated: LocalDate?): LocalDate {
+    val periodStart = today.with(TemporalAdjusters.previousOrSame(payday))
+    val keepFrom = balanceUpdated?.takeIf { it.isBefore(periodStart) } ?: periodStart
+    return minOf(keepFrom, YearMonth.from(today).atDay(1))
 }
 
 // Moving money between your own accounts, paying a card or loan, or borrowing (a loan or pay advance isn't
