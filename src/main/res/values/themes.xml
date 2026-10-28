@@ -24,7 +24,17 @@
     <style name="AppDialog" parent="@android:style/Theme.Material.Light.Dialog.Alert">
         <item name="android:colorAccent">@color/accent</item>
         <item name="android:windowBackground">@drawable/dialog_bg</item>
+        <item name="android:windowTitleStyle">@style/DialogTitle</item>
         <item name="android:buttonBarButtonStyle">@style/DialogButton</item>
+    </style>
+
+    <!-- Dialog titles in Outfit, like the page titles (Material's own title style is private, so this one stands
+         alone on the public title text appearance). -->
+    <style name="DialogTitle">
+        <item name="android:textAppearance">@android:style/TextAppearance.Material.Title</item>
+        <item name="android:fontFamily">@font/outfit_semibold</item>
+        <item name="android:textColor">@color/text</item>
+        <item name="android:textSize">22sp</item>
     </style>
 
     <style name="DialogButton" parent="@android:style/Widget.Material.Button.Borderless.Colored">
@@ -100,18 +110,19 @@
         <item name="android:textSize">12sp</item>
     </style>
 
-    <!-- Shrinks to fit one line. The 10sp floor lets "-$12,345.67" fit a half-width tile at the largest font
-         size; at normal sizes amounts fit at the full 20sp. -->
+    <!-- In Outfit, shrinking to fit one line. The 10sp floor lets "-$12,345.67" fit a half-width tile at the
+         largest font size; at normal sizes amounts fit at the full 22sp. -->
     <style name="TileValue" parent="Money">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginTop">2dp</item>
-        <item name="android:autoSizeMaxTextSize">20sp</item>
+        <item name="android:autoSizeMaxTextSize">22sp</item>
         <item name="android:autoSizeMinTextSize">10sp</item>
         <item name="android:autoSizeTextType">uniform</item>
+        <item name="android:fontFamily">@font/outfit_semibold</item>
         <item name="android:maxLines">1</item>
         <item name="android:textColor">@color/text</item>
-        <item name="android:textSize">20sp</item>
+        <item name="android:textSize">22sp</item>
     </style>
 
     <!-- One of the three numbers on the Summary's month card (Pay, Bills, After bills). The layout makes each one
@@ -137,8 +148,8 @@
     <!-- Whole dollars, shrinking (down to 10sp, like the tiles) rather than wrapping or being cut off. -->
     <style name="MonthStatValue" parent="TileValue">
         <item name="android:layout_marginEnd">8dp</item>
-        <item name="android:autoSizeMaxTextSize">18sp</item>
-        <item name="android:textSize">18sp</item>
+        <item name="android:autoSizeMaxTextSize">20sp</item>
+        <item name="android:textSize">20sp</item>
     </style>
 
     <!-- Numbers: medium weight with equal-width digits so columns line up. -->
@@ -147,15 +158,58 @@
         <item name="android:fontFeatureSettings">tnum</item>
     </style>
 
+    <!-- Outfit (res/font, from Google Fonts; license in assets/licenses) for titles and the big amounts. -->
     <style name="PageTitle">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginStart">4dp</item>
         <item name="android:layout_marginBottom">12dp</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="android:letterSpacing">-0.02</item>
+        <item name="android:fontFamily">@font/outfit_semibold</item>
+        <item name="android:letterSpacing">-0.01</item>
         <item name="android:textColor">@color/text</item>
-        <item name="android:textSize">32sp</item>
+        <item name="android:textSize">34sp</item>
+    </style>
+
+    <!-- The sand-to-peach card at the top of each tab (Safe to spend, balance ahead, bills each month), like the
+         home-screen widget. Text colors come from hero_* (cocoa in dark mode). -->
+    <style name="HeroCard">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginBottom">14dp</item>
+        <item name="android:background">@drawable/hero</item>
+        <item name="android:elevation">2dp</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:paddingHorizontal">20dp</item>
+        <item name="android:paddingTop">18dp</item>
+        <item name="android:paddingBottom">16dp</item>
+    </style>
+
+    <!-- Set in small capitals from code (smallCaps). -->
+    <style name="HeroLabel">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:letterSpacing">0.04</item>
+        <item name="android:textColor">@color/hero_text_secondary</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="HeroAmount">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">2dp</item>
+        <item name="android:fontFamily">@font/outfit_semibold</item>
+        <item name="android:fontFeatureSettings">tnum</item>
+        <item name="android:letterSpacing">-0.01</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:textColor">@color/hero_text</item>
+        <item name="android:textSize">40sp</item>
+    </style>
+
+    <style name="HeroNote">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">@color/hero_text_secondary</item>
+        <item name="android:textSize">14sp</item>
     </style>
 
     <!-- Small line under a page title. -->
@@ -262,7 +316,7 @@
     <style name="SectionTitle">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:fontFamily">@font/outfit_semibold</item>
         <item name="android:textColor">@color/text</item>
         <item name="android:textSize">19sp</item>
     </style>

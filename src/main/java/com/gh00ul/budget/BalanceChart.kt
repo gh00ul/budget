@@ -1,5 +1,6 @@
 package com.gh00ul.budget
 
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.DashPathEffect
@@ -11,6 +12,7 @@ import android.graphics.Typeface
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.View
+import android.view.animation.PathInterpolator
 import kotlin.math.abs
 
 // Line chart of the balance after each pay period. The first point ("Now") is today's bank balance minus the
@@ -24,7 +26,8 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
     private var format: (Double) -> String = { it.toString() }
 
     private val dp = resources.displayMetrics.density
-    private val medium = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+    private val medium: Typeface = resources.getFont(R.font.outfit_medium)
+    private var shown = 1f // how much of the line is drawn, left to right, while it draws in
 
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -84,6 +87,20 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
         invalidate()
     }
 
+    // Draws the line in from the left (skipped when Android's animations are off).
+    fun playIntro() {
+        if (values.size < 2 || !ValueAnimator.areAnimatorsEnabled()) return
+        ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 900
+            interpolator = PathInterpolator(0.3f, 0f, 0.2f, 1f)
+            addUpdateListener {
+                shown = it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+    }
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         updateFill()
@@ -141,6 +158,9 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
         area.lineTo(x(values.size - 1), bottom)
         area.lineTo(x(0), bottom)
         area.close()
+        // While drawing in, the line, the fade under it and the points show up to the reveal edge.
+        canvas.save()
+        canvas.clipRect(0f, 0f, left - 8 * dp + (right - left + 16 * dp) * shown, height.toFloat())
         canvas.drawPath(area, fillPaint)
         if (anyNegative) canvas.drawLine(left, y(0.0), right, y(0.0), zeroPaint)
         linePaint.color = color
@@ -156,6 +176,8 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
             canvas.drawCircle(x(i), y(v), radius, dotPaint)
             if (i != 0) canvas.drawCircle(x(i), y(v), radius - 2.5f * dp, holePaint) // the first point is solid
         }
+        canvas.restore()
+        val labelAlpha = (255 * shown * shown).toInt() // the value labels fade in as the line arrives
 
         // Dates under the points, kept inside the view (with large text the first and last ran off the edges).
         // If one would run into the date before it or into the last date (very large text on a narrow screen),
@@ -180,13 +202,13 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
         val firstHalf = valueText.measureText(firstText) / 2
         val firstX = labelX(x(0), firstHalf)
         val firstY = labelY(y(values[0]))
-        valueText.color = secondary
+        valueText.color = withAlpha(secondary, labelAlpha)
         canvas.drawText(firstText, firstX, firstY, valueText)
         val lastText = format(values[last])
         val lastHalf = valueText.measureText(lastText) / 2
         val lastX = labelX(x(last), lastHalf)
         val lastY = labelY(y(values[last]))
-        valueText.color = if (values[last] < 0) negative else textColor
+        valueText.color = withAlpha(if (values[last] < 0) negative else textColor, labelAlpha)
         canvas.drawText(lastText, lastX, lastY, valueText)
         if (showLow && low != last && low != 0) {
             val text = "Low ${format(values[low])}"
@@ -209,7 +231,7 @@ class BalanceChart(context: Context, attrs: AttributeSet?) : View(context, attrs
                     lx = slid
                 }
             }
-            valueText.color = if (values[low] < 0) negative else textColor
+            valueText.color = withAlpha(if (values[low] < 0) negative else textColor, labelAlpha)
             canvas.drawText(text, lx, ly, valueText)
         }
     }

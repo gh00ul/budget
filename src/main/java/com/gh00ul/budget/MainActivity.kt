@@ -120,6 +120,7 @@ class MainActivity : Activity() {
     )
     private val navItems = mutableListOf<View>()
     private var currentTab = 0
+    private val tabsSeen = mutableSetOf<Int>() // tabs shown on this screen, so the chart and bars play in only once
 
     private val money = NumberFormat.getCurrencyInstance()
     private val decimalSeparator = (money as? DecimalFormat)?.decimalFormatSymbols?.monetaryDecimalSeparator ?: '.'
@@ -186,6 +187,12 @@ class MainActivity : Activity() {
     private val forecastList by view<LinearLayout>(R.id.forecast_list)
     private val chartCard by view<View>(R.id.chart_card)
     private val chart by view<BalanceChart>(R.id.chart)
+    private val aheadAmount by view<TextView>(R.id.ahead_amount)
+    private val aheadNote by view<TextView>(R.id.ahead_note)
+    private val billsHero by view<View>(R.id.bills_hero)
+    private val billsHeroAmount by view<TextView>(R.id.bills_hero_amount)
+    private val billsHeroNote by view<TextView>(R.id.bills_hero_note)
+    private val billsBar by view<BillsBar>(R.id.bills_bar)
     private val paydaysSubtitle by view<TextView>(R.id.paydays_subtitle)
     private val paydaysEmpty by view<View>(R.id.paydays_empty)
     private val paydaysEmptyBody by view<TextView>(R.id.paydays_empty_body)
@@ -243,6 +250,9 @@ class MainActivity : Activity() {
         findViewById<View>(R.id.bills_card).clipToOutline = true // keeps swiped rows inside the rounded card
         hero.clipToOutline = true // keeps the touch ripple inside the rounded card
         heroLabel.text = smallCaps("Safe to spend this week")
+        for ((id, text) in listOf(R.id.ahead_label to "Lowest balance ahead", R.id.bills_hero_label to "Your bills each month")) {
+            findViewById<TextView>(id).text = smallCaps(text)
+        }
 
         hero.setOnClickListener { explainSafeToSpend() }
         findViewById<View>(R.id.balance_row).setOnClickListener { editBalance() }
@@ -534,6 +544,12 @@ class MainActivity : Activity() {
         }
         updateFab(animate)
         hideKeyboard()
+        if (tabsSeen.add(currentTab) && animate) {
+            when (currentTab) {
+                1 -> chart.playIntro()
+                2 -> billsBar.playIntro()
+            }
+        }
     }
 
     // The + button lives on the Bills tab once there's a bill (the empty list has its own button).
@@ -1222,10 +1238,10 @@ class MainActivity : Activity() {
         billsEmpty.visibility = if (bills.isEmpty()) View.VISIBLE else View.GONE
         billsHint.visibility = if (bills.isEmpty()) View.GONE else View.VISIBLE
         val perWeek = bills.sumOf { it.perWeek }
+        showBillsHero(perWeek)
         billsSubtitle.text = when {
             bills.isEmpty() -> "Add what you pay regularly"
-            else -> "${bills.size} bill${if (bills.size == 1) "" else "s"} · about ${compactMoney(perWeek)} a week " +
-                "(${compactMoney(perWeek * 365.25 / 7 / 12)} a month)"
+            else -> "${bills.size} bill${if (bills.size == 1) "" else "s"}, sorted by when they're due"
         } + model.unreadableBills.size.takeIf { it > 0 }?.let { n ->
             // Kept, but not counted anywhere until an update can read them.
             " · $n saved bill${if (n == 1) "" else "s"} can't be shown by this version; update the app"
@@ -1235,6 +1251,23 @@ class MainActivity : Activity() {
         navItems[2].findViewById<View>(R.id.nav_badge).visibility = if (dueSoon) View.VISIBLE else View.GONE
         navItems[2].contentDescription = if (dueSoon) "Bills, a bill is due today or tomorrow" else "Bills"
         updateFab(animate = true)
+    }
+
+    // The card at the top of Bills: every bill spread over a month (as in Safe to spend, each one's weekly share), and a
+    // bar of where it goes: the four biggest, then the rest as "Other".
+    private fun showBillsHero(perWeek: Double) {
+        billsHero.visibility = if (bills.isEmpty()) View.GONE else View.VISIBLE
+        if (bills.isEmpty()) return
+        val perMonth = 365.25 / 7 / 12
+        billsHeroAmount.text = bigMoney(cents(perWeek * perMonth))
+        billsHeroNote.text = "About ${compactMoney(perWeek)} from each weekly paycheck"
+        val monthly = bills.groupBy { it.name.trim().lowercase() }
+            .map { (_, same) -> same.first().name to same.sumOf { it.perWeek * perMonth } }
+            .sortedByDescending { it.second }
+        val shown = if (monthly.size <= 5) monthly else monthly.take(4) + ("Other" to monthly.drop(4).sumOf { it.second })
+        val parts = shown.map { (name, amount) -> BillsBar.Part(name, amount, compactMoney(amount)) }
+        billsBar.setParts(parts)
+        billsBar.contentDescription = "Each month: " + parts.joinToString { "${it.name} ${it.label}" }
     }
 
     // The bill row (by bill id) a screen reader is on, so it can go back there after the list is redrawn: marking a
@@ -1353,9 +1386,31 @@ class MainActivity : Activity() {
             chartLabels, chartValues,
             "Bank balance after each payday's bills: ${spoken.joinToString("; ")}. Lowest ${compactMoney(low)}.",
         ) { compactMoney(it) }
+        showAhead(starts, chartValues)
 
         showSummary(week, today, monthName, endIfSpending)
         showMonth(week, today)
+    }
+
+    // The card at the top of Paydays: the lowest the bank gets after bills (before other spending) over the paydays
+    // shown, and where it ends up. It turns rosy, like Safe to spend, when that lowest point is below zero.
+    private fun showAhead(starts: List<LocalDate>, values: List<Double>) {
+        if (values.isEmpty()) return
+        val lowAt = values.indices.minBy { values[it] }
+        val low = values[lowAt]
+        val short = low < 0
+        chartCard.setBackgroundResource(if (short) R.drawable.hero_short else R.drawable.hero)
+        aheadAmount.text = bigMoney(low)
+        aheadAmount.setTextColor(getColor(if (short) R.color.hero_short_text else R.color.hero_text))
+        val soft = getColor(if (short) R.color.hero_short_secondary else R.color.hero_text_secondary)
+        aheadNote.setTextColor(soft)
+        findViewById<TextView>(R.id.ahead_label).setTextColor(soft)
+        val whenLow = if (lowAt == 0) "Before payday" else "On ${starts[lowAt].format(dayFormat)}"
+        aheadNote.text = if (lowAt == values.lastIndex) {
+            "$whenLow, the last payday shown"
+        } else {
+            "$whenLow · then ${compactMoney(values.last())} by ${starts.last().format(shortDate)}"
+        }
     }
 
     // The month card on Summary: this month's pay and bills (all of them, paid or not, so the totals don't change as
@@ -1371,7 +1426,9 @@ class MainActivity : Activity() {
         monthLeft.text = compactMoney(left)
         monthLeft.setTextColor(if (left < 0) negative else textColor)
         monthProgress.visibility = if (report.billsTotal > 0) View.VISIBLE else View.GONE
-        if (report.billsTotal > 0) monthProgress.progress = (report.billsDone / report.billsTotal * 1000).toInt().coerceIn(0, 1000)
+        if (report.billsTotal > 0) {
+            monthProgress.setProgress((report.billsDone / report.billsTotal * 1000).toInt().coerceIn(0, 1000), true)
+        }
         val next = report.bills.firstOrNull { !it.done(today) }
         monthStatus.text = when {
             report.bills.isEmpty() -> "No bills due in $name"
@@ -1521,7 +1578,7 @@ class MainActivity : Activity() {
         val spent = week.spent
         if (spent != null && week.weekMoney > 0) {
             heroProgress.visibility = View.VISIBLE
-            heroProgress.progress = (spent / week.weekMoney * 1000).toInt().coerceIn(0, 1000)
+            heroProgress.setProgress((spent / week.weekMoney * 1000).toInt().coerceIn(0, 1000), true)
         } else {
             heroProgress.visibility = View.GONE
         }
