@@ -11,6 +11,7 @@ import android.app.Dialog
 import android.app.PendingIntent
 import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
+import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
@@ -68,6 +69,7 @@ import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -2334,7 +2336,7 @@ class MainActivity : Activity() {
         val resolver = applicationContext.contentResolver // not this screen: the write can outlive it
         thread(name = "budget-export") {
             val result = runCatching {
-                (resolver.openOutputStream(uri) ?: throw IOException("no stream")).use { it.write(csv.toByteArray()) }
+                openToReplace(resolver, uri).use { it.write(csv.toByteArray()) }
             }
             result.exceptionOrNull()?.let { Log.w("Budget", "Export failed: ${it.javaClass.name}") }
             Running.main.post { Running.liveScreen()?.exportSaved(month, result.isSuccess) }
@@ -2425,7 +2427,7 @@ class MainActivity : Activity() {
         val resolver = applicationContext.contentResolver // not this screen: the write can outlive it
         thread(name = "budget-backup") {
             val result = runCatching {
-                (resolver.openOutputStream(uri) ?: throw IOException("no stream")).use { it.write(json.toByteArray()) }
+                openToReplace(resolver, uri).use { it.write(json.toByteArray()) }
             }
             result.exceptionOrNull()?.let { Log.w("Budget", "Backup failed: ${it.javaClass.name}") }
             Running.main.post { Running.liveScreen()?.backupSaved(today, result.isSuccess) }
@@ -3504,6 +3506,20 @@ private fun abandon(installer: PackageInstaller, sessionId: Int) {
 internal class TooLargeException : IOException("response too large")
 
 // Reads a response body (or a picked file), refusing one larger than `limit` bytes.
+// "wt": picking an existing file in the picker (last month's export, or an older backup) hands back that file, and
+// plain "w" may not cut it short, which would leave the end of a longer old file behind the new one. A provider that
+// doesn't take "wt" gets "w".
+private fun openToReplace(resolver: ContentResolver, uri: Uri): OutputStream {
+    val stream = try {
+        resolver.openOutputStream(uri, "wt")
+    } catch (e: FileNotFoundException) {
+        resolver.openOutputStream(uri, "w")
+    } catch (e: IllegalArgumentException) {
+        resolver.openOutputStream(uri, "w")
+    }
+    return stream ?: throw IOException("no stream")
+}
+
 internal fun readUpTo(input: InputStream, limit: Int): String = input.use { stream ->
     val out = ByteArrayOutputStream()
     val buffer = ByteArray(8192)
