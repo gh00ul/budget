@@ -281,7 +281,11 @@ internal class Budget(private val context: Context) {
         null
     }
 
+    // Also run again after a restore (replaceSaved), so the lists start empty.
     fun load() {
+        bills.clear()
+        unreadableBills.clear()
+        paycheckChanges.clear()
         fun text(key: String) = read(key) { prefs.getString(key, null) }
         fun date(key: String) = savedDate(text(key))
         fun number(key: String) = text(key)?.toDoubleOrNull()?.takeIf { it.isFinite() }
@@ -372,6 +376,23 @@ internal class Budget(private val context: Context) {
             .putString("week_start_taken", weekStartTaken?.toString())
             .putBoolean("week_start_projected", weekStartProjected)
             .apply()
+    }
+
+    // Everything saved is replaced with `values` (a backup's, or what was saved before it, for Undo) and read in
+    // again, as on opening the app.
+    fun replaceSaved(values: Map<String, *>) {
+        val edit = prefs.edit().clear()
+        for ((key, value) in values) {
+            when (value) {
+                is String -> edit.putString(key, value)
+                is Int -> edit.putInt(key, value)
+                is Boolean -> edit.putBoolean(key, value)
+                is Long -> edit.putLong(key, value)
+                is Float -> edit.putFloat(key, value)
+            }
+        }
+        edit.apply()
+        load()
     }
 }
 

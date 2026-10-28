@@ -259,6 +259,20 @@
                         android:text="I have no regular bills"
                         android:textColor="@color/chip_text"
                         android:textSize="15sp" />
+
+                    <!-- Only before anything is entered: a new phone, with a backup from the old one -->
+                    <TextView
+                        android:id="@+id/setup_restore"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:background="?android:attr/selectableItemBackground"
+                        android:fontFamily="sans-serif-medium"
+                        android:gravity="center"
+                        android:minHeight="48dp"
+                        android:text="New phone? Restore a backup"
+                        android:textColor="@color/chip_text"
+                        android:textSize="15sp" />
                 </LinearLayout>
 
                 <!-- Everything else on Summary (hidden during setup) -->
@@ -273,16 +287,8 @@
                          Text colors are set in showSummary (they change when bills aren't covered). -->
                     <LinearLayout
                         android:id="@+id/hero"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginBottom="14dp"
-                        android:background="@drawable/hero"
-                        android:elevation="2dp"
-                        android:foreground="?android:attr/selectableItemBackground"
-                        android:orientation="vertical"
-                        android:paddingHorizontal="20dp"
-                        android:paddingTop="18dp"
-                        android:paddingBottom="16dp">
+                        style="@style/HeroCard"
+                        android:foreground="?android:attr/selectableItemBackground">
 
                         <!-- UseCompoundDrawables: the info icon is drawn at 20dp (its vector is 24dp) and tinted
                              separately from the label; a compound drawable would use the vector's intrinsic size and
@@ -296,13 +302,10 @@
 
                             <TextView
                                 android:id="@+id/hero_label"
+                                style="@style/HeroLabel"
                                 android:layout_width="0dp"
-                                android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:letterSpacing="0.04"
-                                android:text="Safe to spend this week"
-                                android:textColor="@color/hero_text_secondary"
-                                android:textSize="14sp" />
+                                android:text="Safe to spend this week" />
 
                             <ImageView
                                 android:id="@+id/hero_info"
@@ -315,22 +318,12 @@
 
                         <TextView
                             android:id="@+id/hero_amount"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="2dp"
-                            android:fontFamily="sans-serif-medium"
-                            android:fontFeatureSettings="tnum"
-                            android:letterSpacing="-0.02"
-                            android:maxLines="1"
-                            android:textColor="@color/hero_text"
-                            android:textSize="50sp" />
+                            style="@style/HeroAmount"
+                            android:textSize="52sp" />
 
                         <TextView
                             android:id="@+id/hero_note"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:textColor="@color/hero_text_secondary"
-                            android:textSize="14sp" />
+                            style="@style/HeroNote" />
 
                         <!-- How much of this week's money is already spent. Tall enough for the knob; the line
                              itself is 4dp. -->
@@ -427,8 +420,9 @@
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
                                     android:layout_marginStart="8dp"
+                                    android:fontFamily="@font/outfit_semibold"
                                     android:textColor="@color/text"
-                                    android:textSize="18sp" />
+                                    android:textSize="20sp" />
                             </LinearLayout>
 
                             <ImageView
@@ -778,7 +772,72 @@
                     android:id="@+id/paydays_subtitle"
                     style="@style/PageSubtitle" />
 
-                <!-- Your usual pay -->
+                <LinearLayout
+                    android:id="@+id/paydays_content"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <!-- Your balance ahead: the lowest point coming up and the chart of the balance after each payday's
+                         bills. The card's sides are narrow so the chart can run wide; the text keeps the usual inset.
+                         Filled in by recalculate(). -->
+                    <LinearLayout
+                        android:id="@+id/chart_card"
+                        style="@style/HeroCard"
+                        android:paddingHorizontal="4dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginHorizontal="16dp"
+                            android:orientation="vertical"
+                            android:screenReaderFocusable="true">
+
+                            <TextView
+                                android:id="@+id/ahead_label"
+                                style="@style/HeroLabel"
+                                android:text="Lowest balance ahead" />
+
+                            <TextView
+                                android:id="@+id/ahead_amount"
+                                style="@style/HeroAmount" />
+
+                            <TextView
+                                android:id="@+id/ahead_note"
+                                style="@style/HeroNote" />
+                        </LinearLayout>
+
+                        <com.gh00ul.budget.BalanceChart
+                            android:id="@+id/chart"
+                            android:layout_width="match_parent"
+                            android:layout_height="170dp"
+                            android:layout_marginTop="8dp" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        style="@style/Card"
+                        android:paddingTop="12dp"
+                        android:paddingBottom="6dp">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Left in the bank after bills, before spending · tap a row for details"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
+
+                        <!-- Rows are added in code, including the end-of-month row; a line joins their date badges -->
+                        <com.gh00ul.budget.Timeline
+                            android:id="@+id/forecast_list"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:orientation="vertical" />
+                    </LinearLayout>
+
+                </LinearLayout>
+
+                <!-- Your usual pay (under the forecast once set up; first until then) -->
                 <LinearLayout
                     android:id="@+id/pay_card"
                     style="@style/Card"
@@ -849,59 +908,6 @@
                         style="@style/PrimaryButton"
                         android:layout_marginTop="14dp" />
                 </LinearLayout>
-
-                <LinearLayout
-                    android:id="@+id/paydays_content"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical">
-
-                    <LinearLayout
-                        style="@style/Card"
-                        android:paddingTop="12dp"
-                        android:paddingBottom="6dp">
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="Left in the bank after bills, before spending · tap a row for details"
-                            android:textColor="@color/text_secondary"
-                            android:textSize="12sp" />
-
-                        <!-- Rows are added in code, including the end-of-month row; a line joins their date badges -->
-                        <com.gh00ul.budget.Timeline
-                            android:id="@+id/forecast_list"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
-                            android:orientation="vertical" />
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:id="@+id/chart_card"
-                        style="@style/Card">
-
-                        <TextView
-                            style="@style/SectionTitle"
-                            android:accessibilityHeading="true"
-                            android:text="Your balance ahead"
-                            android:textSize="17sp" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="2dp"
-                            android:text="Bank balance after each payday's bills"
-                            android:textColor="@color/text_secondary"
-                            android:textSize="13sp" />
-
-                        <com.gh00ul.budget.BalanceChart
-                            android:id="@+id/chart"
-                            android:layout_width="match_parent"
-                            android:layout_height="170dp"
-                            android:layout_marginTop="10dp" />
-                    </LinearLayout>
-                </LinearLayout>
             </LinearLayout>
         </ScrollView>
 
@@ -929,6 +935,33 @@
                 <TextView
                     android:id="@+id/bills_subtitle"
                     style="@style/PageSubtitle" />
+
+                <!-- Your bills each month: the total, and a bar of where it goes (BillsBar). Filled in by showBills(). -->
+                <LinearLayout
+                    android:id="@+id/bills_hero"
+                    style="@style/HeroCard"
+                    android:screenReaderFocusable="true"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:id="@+id/bills_hero_label"
+                        style="@style/HeroLabel"
+                        android:text="Your bills each month" />
+
+                    <TextView
+                        android:id="@+id/bills_hero_amount"
+                        style="@style/HeroAmount" />
+
+                    <TextView
+                        android:id="@+id/bills_hero_note"
+                        style="@style/HeroNote" />
+
+                    <com.gh00ul.budget.BillsBar
+                        android:id="@+id/bills_bar"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp" />
+                </LinearLayout>
 
                 <!-- Rows run edge to edge (inside the card's 1dp rim) so the swipe layers fill the card -->
                 <LinearLayout

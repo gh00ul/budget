@@ -52,9 +52,9 @@
                     android:layout_marginTop="12dp"
                     android:layout_marginBottom="4dp"
                     android:accessibilityHeading="true"
-                    android:fontFamily="sans-serif-medium"
+                    android:fontFamily="@font/outfit_semibold"
                     android:textColor="@color/text"
-                    android:textSize="22sp" />
+                    android:textSize="24sp" />
 
                 <TextView
                     style="@style/FieldLabel"

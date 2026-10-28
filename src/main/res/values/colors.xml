@@ -56,6 +56,13 @@
     <color name="hero_short_text">#7A2A18</color>
     <color name="hero_short_secondary">#5A4A36</color>
 
+    <!-- The parts of the bills bar on the Bills card (BillsBar), biggest bill first; the fifth is "Other". -->
+    <color name="bill_1">#A35A33</color>
+    <color name="bill_2">#6F8A3A</color>
+    <color name="bill_3">#C08A2E</color>
+    <color name="bill_4">#C9725A</color>
+    <color name="bill_5">#8C7B5E</color>
+
     <!-- Home-screen widget: taken from the owner's music widget so the two match. Not in values-night on purpose:
          the widget sits on the wallpaper and looks the same in dark mode. Text is at least 4.5:1 on the card. -->
     <color name="widget_card_top">#D7C9AF</color>

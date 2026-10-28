@@ -45,4 +45,10 @@
     <color name="hero_short_bottom">#5E3226</color>
     <color name="hero_short_text">#FFB3A0</color>
     <color name="hero_short_secondary">#E2C7B5</color>
+
+    <color name="bill_1">#F2A96B</color>
+    <color name="bill_2">#ADC685</color>
+    <color name="bill_3">#E9C46A</color>
+    <color name="bill_4">#EE9A82</color>
+    <color name="bill_5">#BFAF94</color>
 </resources>
