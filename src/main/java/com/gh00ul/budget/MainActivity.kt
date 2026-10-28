@@ -95,8 +95,10 @@ private const val REPO = "gh00ul/budget"
 internal const val ACTION_UPDATE_BALANCE = "com.gh00ul.budget.UPDATE_BALANCE"
 private const val ACTION_ADD_BILL = "com.gh00ul.budget.ADD_BILL"
 
-// startActivityForResult request: the file picker for Export's "Save as a spreadsheet".
+// startActivityForResult requests: the file pickers for Export's "Save as a spreadsheet" and for Move to a new phone.
 private const val REQUEST_SAVE_CSV = 1
+private const val REQUEST_SAVE_BACKUP = 2
+private const val REQUEST_OPEN_BACKUP = 3
 
 class MainActivity : Activity() {
     // The saved numbers and the money math (Budget.kt), shared with the widget and the export. The fields below
@@ -272,6 +274,7 @@ class MainActivity : Activity() {
         findViewById<View>(R.id.setup_bills_row).setOnClickListener { openBillSheet(null) }
         findViewById<View>(R.id.setup_balance_row).setOnClickListener { editBalance() }
         findViewById<View>(R.id.setup_no_bills).setOnClickListener { setNoBills() }
+        findViewById<View>(R.id.setup_restore).setOnClickListener { openBackup() }
         fab.setOnClickListener { openBillSheet(null) }
         updateButton.setOnClickListener { installUpdate() }
         undoButton.setOnClickListener { undo() }
@@ -1182,6 +1185,8 @@ class MainActivity : Activity() {
             if (balanceDone) money.format(balance) else "What's in your account now")
         // Only offered when bills are the next step.
         findViewById<View>(R.id.setup_no_bills).visibility = if (payDone && !billsDone) View.VISIBLE else View.GONE
+        // A new phone opens to an empty setup; that's when a backup from the old one comes in.
+        findViewById<View>(R.id.setup_restore).visibility = if (!hasSavedBudget()) View.VISIBLE else View.GONE
 
         val (label, action) = when {
             !payDone -> "Set your pay" to { editPay() }
@@ -2230,6 +2235,10 @@ class MainActivity : Activity() {
         if (isSetUp()) {
             row(R.drawable.ic_share, "Export $monthName", "A spreadsheet file, or text to send", sandIcon) { exportThisMonth() }
         }
+        row(R.drawable.ic_phone, "Move to a new phone",
+            if (hasSavedBudget()) "Save a backup file, or restore one" else "Restore a backup from your old phone", sandIcon) {
+            moveToNewPhone()
+        }
         row(R.drawable.ic_widget, "Home-screen widget",
             if (BudgetWidget.isOnHomeScreen(this)) "On your home screen · tap to add another" else "Safe to spend at a glance") { addWidget() }
         row(R.drawable.ic_sync, "Check for updates", "Version ${BuildConfig.VERSION_NAME} · ${Running.updateStatus}", sandIcon) {
@@ -2309,10 +2318,17 @@ class MainActivity : Activity() {
     // (the place picked can be a slow cloud folder).
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_SAVE_CSV) return
+        val uri = data?.data
+        when (requestCode) {
+            REQUEST_SAVE_CSV -> monthCsvPicked(resultCode, uri)
+            REQUEST_SAVE_BACKUP -> if (resultCode == RESULT_OK && uri != null) writeBackup(uri)
+            REQUEST_OPEN_BACKUP -> if (resultCode == RESULT_OK && uri != null) readBackupFile(uri)
+        }
+    }
+
+    private fun monthCsvPicked(resultCode: Int, uri: Uri?) {
         val month = exportMonth ?: return
         exportMonth = null
-        val uri = data?.data
         if (resultCode != RESULT_OK || uri == null) return
         val csv = monthCsv(model.monthReport(month, LocalDate.now()))
         val resolver = applicationContext.contentResolver // not this screen: the write can outlive it
@@ -2337,6 +2353,162 @@ class MainActivity : Activity() {
             .putExtra(Intent.EXTRA_SUBJECT, "Budget for ${monthTitle(month)}")
             .putExtra(Intent.EXTRA_TEXT, text)
         startActivity(Intent.createChooser(send, "Share ${monthTitle(month)}"))
+    }
+
+    // ---------- Move to a new phone ----------
+
+    // Anything entered yet: then there's something to back up, and a restore would replace it.
+    private fun hasSavedBudget() = weeklyIncome > 0 || bills.isNotEmpty() || billsNone || balanceUpdated != null
+
+    // A backup file (Backup.kt) saved here and opened in Budget on the new phone.
+    private fun moveToNewPhone() {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, dp(4))
+        }
+        lateinit var dialog: AlertDialog
+        box.addView(TextView(this).apply {
+            text = "Save a backup here, then restore it in Budget on your new phone. It has your pay, bills, balance " +
+                "and paycheck changes." + (if (bank.isLinked) " Your bank isn't in it: connect it again on the new " +
+                "phone (you'll need the access key)." else "")
+            setTextColor(secondary)
+            textSize = 14f
+            setPadding(dp(24), 0, dp(24), dp(8))
+        })
+        if (hasSavedBudget()) {
+            menuRow(box, R.drawable.ic_download, "Save a backup file", "Pick Google Drive to open it on the new phone") {
+                dialog.dismiss()
+                saveBackup()
+            }
+        }
+        menuRow(box, R.drawable.ic_upload, "Restore from a backup file", "Replaces what's on this phone", oliveIcon) {
+            dialog.dismiss()
+            openBackup()
+        }
+        dialog = AlertDialog.Builder(this)
+            .setTitle("Move to a new phone")
+            .setView(ScrollView(this).apply { addView(box) })
+            .setNegativeButton("Cancel", null)
+            .create()
+        present(dialog)
+    }
+
+    // Android's file picker for where the backup goes; onActivityResult writes it.
+    private fun saveBackup() {
+        val pick = Intent(Intent.ACTION_CREATE_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("application/json")
+            .putExtra(Intent.EXTRA_TITLE, backupFileName(LocalDate.now()))
+        try {
+            startActivityForResult(pick, REQUEST_SAVE_BACKUP)
+        } catch (e: ActivityNotFoundException) {
+            tell("This phone has no app for saving files, so Budget can't save a backup.")
+        }
+    }
+
+    // Any file type: Drive and some file managers don't label .json files as JSON.
+    private fun openBackup() {
+        val pick = Intent(Intent.ACTION_OPEN_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("*/*")
+        try {
+            startActivityForResult(pick, REQUEST_OPEN_BACKUP)
+        } catch (e: ActivityNotFoundException) {
+            tell("This phone has no app for opening files, so Budget can't restore a backup.")
+        }
+    }
+
+    // Made now, from the latest numbers, and written off the main thread (the place picked can be a slow cloud folder).
+    private fun writeBackup(uri: Uri) {
+        val today = LocalDate.now()
+        val json = backupJson(model.prefs.all, bank.saved, today, BuildConfig.VERSION_NAME)
+        val resolver = applicationContext.contentResolver // not this screen: the write can outlive it
+        thread(name = "budget-backup") {
+            val result = runCatching {
+                (resolver.openOutputStream(uri) ?: throw IOException("no stream")).use { it.write(json.toByteArray()) }
+            }
+            result.exceptionOrNull()?.let { Log.w("Budget", "Backup failed: ${it.javaClass.name}") }
+            Running.main.post { Running.liveScreen()?.backupSaved(today, result.isSuccess) }
+        }
+    }
+
+    private fun backupSaved(day: LocalDate, saved: Boolean) {
+        if (saved) {
+            tell("Saved ${backupFileName(day)}.\n\nOn your new phone, install Budget, open it and tap Restore a " +
+                "backup (or Settings › Move to a new phone), then pick this file.")
+        } else {
+            tell("Budget couldn't save the backup there. Try again, or pick another place.")
+        }
+    }
+
+    private fun readBackupFile(uri: Uri) {
+        val resolver = applicationContext.contentResolver
+        thread(name = "budget-restore") {
+            val result = try {
+                val text = readUpTo(resolver.openInputStream(uri) ?: throw IOException("no stream"), BACKUP_MAX_BYTES)
+                Result.success(readBackup(text))
+            } catch (e: BackupException) {
+                Result.failure(e)
+            } catch (e: TooLargeException) { // a photo or video picked by mistake
+                Result.failure(BackupException(NOT_A_BACKUP))
+            } catch (e: IOException) {
+                Log.w("Budget", "Couldn't read backup: ${e.javaClass.name}")
+                Result.failure(BackupException("Budget couldn't open that file. If it's in Google Drive, check you're " +
+                    "online and try again."))
+            } catch (e: SecurityException) { // the picker's app took back its permission
+                Log.w("Budget", "Couldn't read backup: ${e.javaClass.name}")
+                Result.failure(BackupException("Budget couldn't open that file. Try picking it again."))
+            }
+            Running.main.post {
+                val screen = Running.liveScreen() ?: return@post
+                result.fold(screen::confirmRestore) { screen.tell(it.message ?: "") }
+            }
+        }
+    }
+
+    // What's in it, and that it replaces what's here.
+    private fun confirmRestore(backup: Backup) {
+        val lines = mutableListOf<String>()
+        backup.made?.let { lines += "Saved ${it.format(dayFormat)}" }
+        val pay = backup.weeklyIncome
+        val day = backup.payday
+        if (pay != null && day != null) lines += "Pay: ${money.format(pay)} every ${day.getDisplayName(TextStyle.FULL, Locale.getDefault())}"
+        val count = backup.billCount
+        lines += if (count == 0) "No bills" else "$count bill${if (count == 1) "" else "s"}"
+        val balance = backup.balance
+        val updated = backup.balanceUpdated
+        if (balance != null && updated != null) lines += "Bank balance: ${money.format(balance)} on ${updated.format(shortDate)}"
+        val message = lines.joinToString("\n") +
+            if (hasSavedBudget()) "\n\nThis replaces the pay, bills and balance on this phone." else ""
+        AlertDialog.Builder(this)
+            .setTitle("Restore this backup?")
+            .setMessage(message)
+            .setPositiveButton("Restore") { _, _ -> restore(backup) }
+            .setNegativeButton("Cancel", null)
+            .present()
+    }
+
+    private fun restore(backup: Backup) {
+        val before = model.prefs.all.toMap()
+        model.replaceSaved(backup.budget)
+        bank.restore(backup.bankUrl, backup.choices)
+        BudgetWidget.update(this, model)
+        refresh()
+        showSnack("Budget restored") {
+            model.replaceSaved(before)
+            BudgetWidget.update(this, model)
+            refresh()
+        }
+        // The bank comes back only by connecting it again; the address is already filled in.
+        if (backup.bankUrl != null && !bank.isLinked) {
+            AlertDialog.Builder(this)
+                .setTitle("Connect your bank again?")
+                .setMessage("Your budget is back. To keep syncing your balance and purchases, connect your bank on " +
+                    "this phone too. The server address is filled in; you'll need the access key.")
+                .setPositiveButton("Connect") { _, _ -> connectBank() }
+                .setNegativeButton("Later", null)
+                .present()
+        }
     }
 
     // Small dialog with one "$" field and the keyboard already up. Save only works with a valid amount,
@@ -3329,14 +3501,16 @@ private fun abandon(installer: PackageInstaller, sessionId: Int) {
     }
 }
 
-// Reads a response body, refusing one larger than `limit` bytes.
+internal class TooLargeException : IOException("response too large")
+
+// Reads a response body (or a picked file), refusing one larger than `limit` bytes.
 internal fun readUpTo(input: InputStream, limit: Int): String = input.use { stream ->
     val out = ByteArrayOutputStream()
     val buffer = ByteArray(8192)
     while (true) {
         val n = stream.read(buffer)
         if (n < 0) break
-        if (out.size() + n > limit) throw IOException("response too large")
+        if (out.size() + n > limit) throw TooLargeException()
         out.write(buffer, 0, n)
     }
     out.toString("UTF-8")

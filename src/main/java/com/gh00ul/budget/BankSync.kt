@@ -531,11 +531,26 @@ class BankStore(context: Context) {
     }
 
     // A new connection replaces any old one. The key is already sealed (sealAccessKey), so this only writes.
+    // Choices made on transactions stay (ones restored from a backup, say): the first sync keeps only those that are
+    // this bank's (keptChoices).
     fun connect(url: String, key: SealedKey, accountId: String) {
+        val choices = overrides
         clear()
         prefs.edit()
             .putString("url", url).putString("key_iv", key.iv).putString("key", key.data).putString("account", accountId)
             .apply()
+        if (choices.isNotEmpty()) saveOverrides(choices)
+    }
+
+    // What a backup carries from here (Backup.kt): everything saved, of which it keeps the address and the choices.
+    val saved: Map<String, *> get() = prefs.all
+
+    // From a backup: the server address, so Connect your bank has it filled in, and the choices made on
+    // transactions, back in use once the same bank is connected again. A bank already connected here keeps its
+    // address and its own choices.
+    fun restore(url: String?, choices: Map<String, String>) {
+        if (url != null && !isLinked) prefs.edit().putString("url", url).apply()
+        if (choices.isNotEmpty()) saveOverrides(choices + overrides)
     }
 
     fun chooseAccount(accountId: String) = prefs.edit().putString("account", accountId).apply()

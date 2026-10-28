@@ -259,6 +259,20 @@
                         android:text="I have no regular bills"
                         android:textColor="@color/chip_text"
                         android:textSize="15sp" />
+
+                    <!-- Only before anything is entered: a new phone, with a backup from the old one -->
+                    <TextView
+                        android:id="@+id/setup_restore"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:background="?android:attr/selectableItemBackground"
+                        android:fontFamily="sans-serif-medium"
+                        android:gravity="center"
+                        android:minHeight="48dp"
+                        android:text="New phone? Restore a backup"
+                        android:textColor="@color/chip_text"
+                        android:textSize="15sp" />
                 </LinearLayout>
 
                 <!-- Everything else on Summary (hidden during setup) -->
