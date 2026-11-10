@@ -1,0 +1,52 @@
+# Budget
+
+> This is the full README from before it was shortened on Nov 10, 2026. Some details may be out of date.
+
+A simple Android budget app for people paid weekly. Enter your bank balance, weekly pay, payday, and bills (each with how often it repeats and when it's next due). It shows:
+
+- **Safe to spend:** this week's spending money (pay minus each bill's weekly share, minus what you've spent since payday), lowered if needed so every upcoming bill still gets paid on time. Tap it for the full breakdown.
+- **Paydays:** what's left after each payday's bills, and your balance at the end of the month.
+- **Bills:** what's due and when.
+- **This month** (on Summary): the month's pay and bills, and how much of the bills is paid.
+
+**Export** (on the month card, or in Settings) saves this month's budget as a spreadsheet file (CSV, for Google Sheets or Excel) wherever you pick, or shares it as text. It lists every paycheck and bill in the month, your bank purchases if your bank is connected, and where you stand today.
+
+**Home-screen widget** (4×2): Safe to spend this week, your bank balance and your next bill. Add it from Settings → Home-screen widget, or from your home screen's widget list. It updates whenever you change something in the app and every day at midnight; its button updates your balance. It doesn't sync your bank by itself: opening the app does.
+
+Your numbers are stored on your phone (and in Android's own backup if you have it turned on), never sent anywhere else.
+
+## Bank sync (optional)
+
+The app can pull your balance and transactions through the Plaid bank server from [clearbudget-personal](https://github.com/gh00ul/clearbudget-personal) (`bank-sync/`). Your bank login and Plaid keys stay on that server; the phone stores only the server's access key, encrypted with a key kept in Android's keystore, and leaves bank data out of backups.
+
+Open **Settings → Connect your bank** and enter the server's address (`https://….workers.dev`) and its `APP_API_TOKEN`, then pick your checking account. After that:
+
+- **Bank balance** comes from that checking account (available balance) every time you open the app, at most every half hour. Tap it to sync now.
+- **Spent this week** is every purchase since payday on that checking account and your credit cards, minus refunds. Cash withdrawals, money sent through apps like Cash App or Venmo (minus money back through them) and pay-later installments count too. Bills, transfers between your own accounts, card and loan payments, loans and pay advances you receive (they aren't refunds), and paychecks don't. Tap **This week's purchases** to see the list and change how any one counts.
+- **Bills** are marked paid when a matching payment shows up (same amount, or a similar amount with the bill's name in it, within 4 days of the due date).
+- **Paychecks** that land a day or two early, or late on payday, are counted on payday.
+
+If you have a "credit card payment" bill, remove it: card purchases already count as spending. A bank that needs you to sign in again is fixed in ClearBudget (Connect bank).
+
+When the app opens it checks this repo's latest GitHub Release. If there's a newer version, an **Update** banner appears; tap it and confirm Android's prompt.
+
+## Install
+
+On your phone, open this link and install the APK:
+
+https://github.com/gh00ul/budget/releases/latest/download/budget.apk
+
+(Android will ask you to allow installs from your browser the first time.)
+
+## Shipping an update
+
+Commit your changes, then push a tag **higher than the latest release** (see the [releases page](https://github.com/gh00ul/budget/releases)), in the form `vMAJOR.MINOR.PATCH` with minor and patch below 100:
+
+```bash
+git tag v2.9.1
+git push origin main v2.9.1
+```
+
+GitHub Actions builds and signs the APK and publishes the release. Next time the app opens, it offers the update.
+
+Releases are signed with a key stored in the repo's `KEYSTORE_BASE64` / `KEYSTORE_PASSWORD` secrets (with an offline backup kept by the owner). Every release must use that same key, or Android won't install it as an update.
