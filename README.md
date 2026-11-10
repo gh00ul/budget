@@ -1,5 +1,7 @@
 # Budget
 
+> **TL;DR:** Simple Android budget app: income minus bills.
+
 A simple Android budget app for people paid weekly. Enter your bank balance, weekly pay, payday, and bills (each with how often it repeats and when it's next due). It shows:
 
 - **Safe to spend:** this week's spending money (pay minus each bill's weekly share, minus what you've spent since payday), lowered if needed so every upcoming bill still gets paid on time. Tap it for the full breakdown.
