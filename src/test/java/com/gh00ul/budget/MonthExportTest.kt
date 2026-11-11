@@ -301,4 +301,32 @@ class MonthExportTest {
         assertEquals("budget-2027-01.csv", monthFileName(YearMonth.of(2027, 1)))
         assertEquals("October 2026", monthTitle(october, Locale.US))
     }
+
+    // ---------- One-off paychecks kept for the month (regression) ----------
+
+    // The month card and the export add up every paycheck of the month, so a one-off amount (overtime) from earlier in
+    // the month has to survive the app reopening. Before, only this pay week's were kept, and an Oct 2 overtime
+    // paycheck counted at the usual pay once the app reloaded on Oct 22.
+    @Test
+    fun paycheckChangesAreKeptForTheWholeMonth() {
+        // Thursday Oct 22, paid Fridays: the pay week began Oct 16, but Oct 2 and Oct 9 are in the month.
+        assertEquals(day("2026-10-01"), paycheckChangesKeptFrom(day("2026-10-22"), DayOfWeek.FRIDAY, day("2026-10-22")))
+        // An older balance still depends on the changes since it was entered.
+        assertEquals(day("2026-09-20"), paycheckChangesKeptFrom(day("2026-10-22"), DayOfWeek.FRIDAY, day("2026-09-20")))
+        // Oct 1: the pay week that began Sep 25 is still kept.
+        assertEquals(day("2026-09-25"), paycheckChangesKeptFrom(day("2026-10-01"), DayOfWeek.FRIDAY, null))
+        // Payday on the 1st (Thursday Oct 1).
+        assertEquals(day("2026-10-01"), paycheckChangesKeptFrom(day("2026-10-01"), DayOfWeek.THURSDAY, day("2026-10-01")))
+        // Every payday of the month is on or after it, whatever today and the payday are.
+        val random = java.util.Random(42)
+        repeat(5_000) {
+            val today = day("2020-01-01").plusDays(random.nextInt(4000).toLong())
+            val payday = DayOfWeek.of(random.nextInt(7) + 1)
+            val updated = today.minusDays(random.nextInt(60).toLong())
+            val from = paycheckChangesKeptFrom(today, payday, updated)
+            assertTrue(monthPaydays(YearMonth.from(today), payday).none { it.isBefore(from) })
+            assertTrue(!from.isAfter(today.with(java.time.temporal.TemporalAdjusters.previousOrSame(payday))))
+            assertTrue(!from.isAfter(updated))
+        }
+    }
 }

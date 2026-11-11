@@ -319,9 +319,8 @@ internal class Budget(private val context: Context) {
             }
         }
 
-        // Keep paycheck changes from this pay week on, and any the last balance still depends on.
-        val periodStart = lastPayday(LocalDate.now())
-        val keepFrom = balanceUpdated?.takeIf { it.isBefore(periodStart) } ?: periodStart
+        // Keep paycheck changes from this pay week (and this month) on, and any the last balance still depends on.
+        val keepFrom = paycheckChangesKeptFrom(LocalDate.now(), payday, balanceUpdated)
         text("paycheck_changes")?.let { saved ->
             try {
                 val changes = JSONObject(saved)
